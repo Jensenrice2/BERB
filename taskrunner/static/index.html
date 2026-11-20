@@ -2,18 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Task Runner</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
-<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png"><!-- used by Safari's "Add to Dock" on macOS -->
 <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#10141a" media="(prefers-color-scheme: dark)">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Tasks">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <style>
   :root {
     --bg: #f6f7f9; --panel: #fff; --text: #1d2430; --muted: #6b7380; --border: #e2e5ea;
@@ -29,7 +25,6 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
-  body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
   header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex;
            align-items: baseline; gap: 16px; flex-wrap: wrap; }
   header h1 { font-size: 18px; margin: 0; display: flex; align-items: center; gap: 8px; }

@@ -10,7 +10,7 @@ Give it work, either as a shell command or as a task described in plain English 
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-## Install it as an app
+## Install it as a desktop app (macOS / Windows)
 
 With the server running, open http://127.0.0.1:8765 and:
 
