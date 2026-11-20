@@ -10,6 +10,15 @@ Give it work, either as a shell command or as a task described in plain English 
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 ```
 
+## Install it as an app
+
+With the server running, open http://127.0.0.1:8765 and:
+
+- **Mac, Safari** (macOS Sonoma or later): **File → Add to Dock**.
+- **Mac/Windows/Linux, Chrome or Edge**: click **Install app** in the page header, or the install icon in the address bar.
+
+It then opens in its own window with its own icon. The server still has to be running for it to show jobs; if it isn't, the app tells you how to start it.
+
 ## AI agent setup
 
 Agent jobs need an Anthropic API key in the environment of the **server**:

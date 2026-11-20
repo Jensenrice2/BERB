@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -58,9 +59,24 @@ def create_app(data_dir: Path = DATA_DIR, concurrency: int = CONCURRENCY) -> Fas
             raise HTTPException(404, "job not found")
         return job
 
+    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
     @app.get("/", include_in_schema=False)
     def index():
-        return FileResponse(STATIC / "index.html")
+        return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
+
+    # Installable-app files. The service worker must be served from the root so it covers the whole app.
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    def manifest():
+        return FileResponse(STATIC / "manifest.webmanifest", media_type="application/manifest+json")
+
+    @app.get("/sw.js", include_in_schema=False)
+    def service_worker():
+        return FileResponse(STATIC / "sw.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon():
+        return FileResponse(STATIC / "icons" / "favicon-32.png", media_type="image/png")
 
     @app.get("/api/status")
     def status():

@@ -2,8 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Task Runner</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#10141a" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tasks">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <style>
   :root {
     --bg: #f6f7f9; --panel: #fff; --text: #1d2430; --muted: #6b7380; --border: #e2e5ea;
@@ -19,9 +29,12 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+  body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
   header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex;
            align-items: baseline; gap: 16px; flex-wrap: wrap; }
-  header h1 { font-size: 18px; margin: 0; }
+  header h1 { font-size: 18px; margin: 0; display: flex; align-items: center; gap: 8px; }
+  header h1 img { width: 24px; height: 24px; border-radius: 6px; }
+  #install { margin-left: auto; display: none; }
   #stats { color: var(--muted); font-size: 13px; }
   main { display: grid; grid-template-columns: minmax(320px, 1fr) 1.3fr; gap: 16px; padding: 16px 20px; }
   @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 16px; } }
@@ -71,8 +84,9 @@
 </head>
 <body>
 <header>
-  <h1>Task Runner</h1>
+  <h1><img src="/static/icons/icon.svg" alt="">Task Runner</h1>
   <span id="stats"></span>
+  <button id="install" type="button">Install app</button>
 </header>
 <main>
   <section class="panel">
@@ -144,7 +158,11 @@ async function refresh() {
         ${badge(j.status)}<span class="name">${j.kind === 'agent' ? '<span class="kind" title="AI agent">🤖</span> ' : ''}#${j.id} ${esc(j.name)}</span><span class="meta">${dur(j)}</span>
       </li>`).join('') : '<li class="empty">No jobs yet.</li>';
     if (selected) renderDetail(jobs.find(j => j.id === selected) || await api('/api/jobs/' + selected));
-  } catch (e) { $('#stats').textContent = 'Server unreachable: ' + e.message; }
+  } catch (e) {
+    $('#stats').textContent = e instanceof TypeError
+      ? 'Server not running. Start it with: python -m taskrunner.cli serve'
+      : 'Error: ' + e.message;
+  }
 }
 
 function renderDetail(j) {
@@ -241,6 +259,19 @@ $('#new').addEventListener('submit', async e => {
 $('#filter').addEventListener('change', refresh);
 refresh();
 setInterval(refresh, 1500);
+
+// Installable app: register the service worker, and offer an Install button where the browser supports it.
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault(); installPrompt = e; $('#install').style.display = 'inline-block';
+});
+$('#install').addEventListener('click', async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt(); await installPrompt.userChoice;
+  installPrompt = null; $('#install').style.display = 'none';
+});
+window.addEventListener('appinstalled', () => { $('#install').style.display = 'none'; });
 </script>
 </body>
 </html>
