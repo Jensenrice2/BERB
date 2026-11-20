@@ -4,6 +4,16 @@ Give it work, either as a shell command or as a task described in plain English 
 
 ![dashboard](dashboard.png)
 
+## Quick start on Windows (no typing)
+
+1. On https://github.com/Jensenrice2/BERB click the green **Code** button → **Download ZIP**.
+2. Open your Downloads folder, right-click the ZIP → **Extract All…** → **Extract**.
+3. In the extracted folder, double-click **start-windows.bat**.
+   - If Windows says *"Windows protected your PC"*, click **More info** → **Run anyway**.
+   - The first time, it installs what it needs (and Python, if you don't have it).
+4. Your browser opens Task Runner. Keep the black window open while you use it.
+5. To get it as an app with its own icon, click **Install app** at the top of the page (Edge or Chrome).
+
 ## Setup
 
 Works on **Windows**, **macOS** and **Linux** with Python 3.10 or newer.

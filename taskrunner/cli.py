@@ -44,10 +44,27 @@ def fmt(j: dict) -> str:
     return f"#{j['id']:<4} {j['status']:<10} {kind}{j['name']}"
 
 
+def _open_when_ready(url: str) -> None:
+    import threading
+    import webbrowser
+
+    def wait_then_open():
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1).close()
+                webbrowser.open(url)
+                return
+            except OSError:
+                time.sleep(0.2)
+
+    threading.Thread(target=wait_then_open, daemon=True).start()
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="taskrunner", description="Run shell jobs in the background.")
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("serve"); s.add_argument("--host", default="127.0.0.1"); s.add_argument("--port", type=int, default=8765)
+    s.add_argument("--open", action="store_true", help="open the dashboard in your browser once it's ready")
     a = sub.add_parser("add"); a.add_argument("command"); a.add_argument("--name"); a.add_argument("--cwd"); a.add_argument("--timeout", type=float)
     ag = sub.add_parser("agent"); ag.add_argument("task"); ag.add_argument("--name"); ag.add_argument("--cwd"); ag.add_argument("--timeout", type=float)
     sub.add_parser("files").add_argument("id", type=int)
@@ -59,7 +76,12 @@ def main(argv=None):
 
     if args.cmd == "serve":
         import uvicorn
-        uvicorn.run("taskrunner.app:app", host=args.host, port=args.port)
+        url = f"http://127.0.0.1:{args.port}"
+        if args.open:
+            _open_when_ready(url)
+        print(f"Task Runner is running at {url}  (keep this window open; close it or press Ctrl+C to stop)",
+              flush=True)
+        uvicorn.run("taskrunner.app:app", host=args.host, port=args.port, log_level="warning")
     elif args.cmd == "add":
         body = {k: v for k, v in vars(args).items() if k in ("command", "name", "cwd", "timeout") and v is not None}
         if "cwd" in body:
