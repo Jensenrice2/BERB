@@ -6,25 +6,49 @@ Give it work, either as a shell command or as a task described in plain English 
 
 ## Setup
 
+Works on **Windows**, **macOS** and **Linux** with Python 3.10 or newer.
+
+**macOS / Linux** (Terminal):
+
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+git clone https://github.com/Jensenrice2/BERB.git taskrunner && cd taskrunner
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python -m taskrunner.cli serve
 ```
+
+**Windows** (PowerShell). Install Python from https://www.python.org/downloads/ first, and tick "Add python.exe to PATH":
+
+```powershell
+git clone https://github.com/Jensenrice2/BERB.git taskrunner; cd taskrunner
+py -m venv .venv; .venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\python -m taskrunner.cli serve
+```
+
+(No git? Download the ZIP from the GitHub page with **Code → Download ZIP**, unzip it, and run the last two lines inside the folder.)
+
+Then open http://127.0.0.1:8765. The server runs while that window stays open.
+
+On Windows, shell jobs run in **PowerShell** (PowerShell 7 if installed, otherwise the Windows PowerShell built into Windows), and AI agents get a PowerShell tool. On macOS/Linux both use **bash**.
 
 ## Install it as a desktop app (macOS / Windows)
 
 With the server running, open http://127.0.0.1:8765 and:
 
 - **Mac, Safari** (macOS Sonoma or later): **File → Add to Dock**.
-- **Mac/Windows/Linux, Chrome or Edge**: click **Install app** in the page header, or the install icon in the address bar.
+- **Windows/Mac/Linux, Chrome or Edge**: click **Install app** in the page header, or the install icon in the address bar.
 
 It then opens in its own window with its own icon. The server still has to be running for it to show jobs; if it isn't, the app tells you how to start it.
 
 ## AI agent setup
 
-Agent jobs need an Anthropic API key in the environment of the **server**:
+Agent jobs need an Anthropic API key (from https://console.anthropic.com) set in the window **before** starting the server:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+export ANTHROPIC_API_KEY=sk-ant-...        # macOS / Linux
+```
+
+```powershell
+$env:ANTHROPIC_API_KEY = "sk-ant-..."      # Windows PowerShell
 ```
 
 ## Run
@@ -73,7 +97,7 @@ Interactive docs: `/docs`.
 
 Each agent job runs `taskrunner/agent.py` as its own subprocess. Cancel, timeout, retry and live logs all work the same way as for shell jobs.
 
-- **Tools:** Claude gets a persistent bash shell and a file editor. It works in `data/agent/<id>/workspace`, or in the working directory you give it.
+- **Tools:** Claude gets a shell (a persistent bash session on macOS/Linux; PowerShell on Windows, where the current folder carries over between commands but variables don't) and a file editor. It works in `data/agent/<id>/workspace`, or in the working directory you give it.
 - **Limits:** a run stops after 60 model turns, and each bash command stops after 5 minutes. Set a job timeout to cap wall-clock time.
 - **Log:** shows Claude's reasoning summaries, its messages, every command it runs, and a final report.
 - **Model settings:** adaptive thinking, prompt caching for the growing conversation, and server-side refusal fallback (`fallbacks: "default"`).
@@ -82,6 +106,6 @@ Each agent job runs `taskrunner/agent.py` as its own subprocess. Cancel, timeout
 
 ## Behavior
 
-- Each job runs in its own process group, so cancelling it or hitting its timeout kills any child processes too. The runner sends SIGTERM first, then SIGKILL after 5 seconds.
+- Each job runs in its own process group, so cancelling it or hitting its timeout kills any child processes too. The runner sends SIGTERM first, then SIGKILL after 5 seconds on macOS/Linux; on Windows it uses `taskkill /T /F`.
 - Jobs are stored in SQLite, so queued jobs survive a restart. Jobs that were running when the server stopped are marked `failed` with "interrupted by server restart".
 - **Security:** jobs (and agents) run arbitrary shell commands as the server's user, and there is no login. The server binds to localhost only. Don't expose it to a network without adding authentication.

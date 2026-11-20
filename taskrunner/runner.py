@@ -4,11 +4,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import signal
 import sys
 import time
 from pathlib import Path
 
+from . import oscompat
 from .store import Store
 
 log = logging.getLogger("taskrunner")
@@ -91,14 +91,7 @@ class Runner:
                 if job["kind"] == "agent":
                     proc = await self._spawn_agent(job, out)
                 else:
-                    proc = await asyncio.create_subprocess_shell(
-                        job["command"],
-                        cwd=job["cwd"] or None,
-                        stdout=out,
-                        stderr=asyncio.subprocess.STDOUT,
-                        stdin=asyncio.subprocess.DEVNULL,
-                        start_new_session=True,  # own process group so we can kill children
-                    )
+                    proc = await self._spawn_shell(job, out)
             except OSError as e:
                 self.store.update(job_id, status="failed", error=str(e), finished_at=time.time())
                 return
@@ -126,6 +119,13 @@ class Runner:
             job_id, status=status, exit_code=proc.returncode, error=error, finished_at=time.time()
         )
 
+    async def _spawn_shell(self, job: dict, out) -> asyncio.subprocess.Process:
+        # Own process group, so cancel/timeout can stop everything the job started.
+        common = dict(cwd=job["cwd"] or None, stdout=out, stderr=asyncio.subprocess.STDOUT,
+                      stdin=asyncio.subprocess.DEVNULL, **oscompat.new_group_kwargs())
+        if oscompat.IS_WINDOWS:
+            return await asyncio.create_subprocess_exec(*oscompat.powershell_argv(job["command"]), **common)
+        return await asyncio.create_subprocess_shell(job["command"], **common)
 
     def workspace_for(self, job: dict) -> Path:
         return Path(job["cwd"]) if job["cwd"] else self.agent_dir / str(job["id"]) / "workspace"
@@ -133,31 +133,31 @@ class Runner:
     async def _spawn_agent(self, job: dict, out) -> asyncio.subprocess.Process:
         task_file = self.agent_dir / str(job["id"]) / "task.md"
         task_file.parent.mkdir(parents=True, exist_ok=True)
-        task_file.write_text(job["command"])
+        task_file.write_text(job["command"], encoding="utf-8")
         workspace = self.workspace_for(job)
         workspace.mkdir(parents=True, exist_ok=True)
         pkg_root = str(Path(__file__).resolve().parent.parent)
-        env = {**os.environ, "PYTHONPATH": pkg_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8",
+               "PYTHONPATH": pkg_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
         return await asyncio.create_subprocess_exec(
             sys.executable, "-u", "-m", "taskrunner.agent",
             "--workspace", str(workspace), "--task-file", str(task_file),
             cwd=workspace, env=env, stdout=out, stderr=asyncio.subprocess.STDOUT,
-            stdin=asyncio.subprocess.DEVNULL, start_new_session=True,
+            stdin=asyncio.subprocess.DEVNULL, **oscompat.new_group_kwargs(),
         )
 
 
 def _kill_group(proc: asyncio.subprocess.Process) -> None:
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except ProcessLookupError:
+    """Stop a job's whole process tree: politely first on macOS/Linux, forcefully after 5s."""
+    if proc.returncode is not None:
         return
+    oscompat.kill_tree(proc.pid)
+    if oscompat.IS_WINDOWS:
+        return  # taskkill /F is already final
 
     async def _escalate():
         await asyncio.sleep(5)
         if proc.returncode is None:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+            oscompat.kill_tree(proc.pid, force=True)
 
     asyncio.get_running_loop().create_task(_escalate())

@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from . import oscompat
 from .runner import Runner
 from .store import Store
 
@@ -46,6 +47,10 @@ def create_app(data_dir: Path = DATA_DIR, concurrency: int = CONCURRENCY) -> Fas
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        import asyncio
+        if oscompat.IS_WINDOWS and not isinstance(asyncio.get_running_loop(), asyncio.ProactorEventLoop):
+            raise RuntimeError("On Windows the server must run on the Proactor event loop to start jobs. "
+                               "Start it with: python -m taskrunner.cli serve")
         await runner.start()
         yield
         await runner.stop()
@@ -83,7 +88,8 @@ def create_app(data_dir: Path = DATA_DIR, concurrency: int = CONCURRENCY) -> Fas
         counts: dict[str, int] = {}
         for j in store.list(limit=10_000):
             counts[j["status"]] = counts.get(j["status"], 0) + 1
-        return {"concurrency": concurrency, "running": runner.running, "counts": counts}
+        return {"concurrency": concurrency, "running": runner.running, "counts": counts,
+                "shell": oscompat.SHELL_NAME}
 
     @app.post("/api/jobs", status_code=201)
     async def create_job(body: JobIn):

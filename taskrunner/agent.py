@@ -22,20 +22,38 @@ from pathlib import Path
 
 import anthropic
 
+from . import oscompat
+
 MODEL = os.environ.get("TASKRUNNER_AGENT_MODEL", "claude-opus-5-5")
 EFFORT = os.environ.get("TASKRUNNER_AGENT_EFFORT", "high")
-TOOLS = [
-    {"type": "bash_20250124", "name": "bash"},
-    {"type": "text_editor_20250728", "name": "str_replace_based_edit_tool"},
-]
-CMD_TIMEOUT = 300  # seconds per bash command
+EDITOR_TOOL = {"type": "text_editor_20250728", "name": "str_replace_based_edit_tool"}
+BASH_TOOL = {"type": "bash_20250124", "name": "bash"}  # Anthropic-defined; schema is built in
+POWERSHELL_TOOL = {  # Windows has no bash, so the agent gets a PowerShell tool instead
+    "name": "powershell",
+    "description": (
+        "Run a PowerShell command on this Windows machine and get its combined output. Each call "
+        "starts a fresh, non-interactive PowerShell process: the current directory carries over "
+        "between calls, but variables, functions and environment changes do not, so chain dependent "
+        "steps in one call with ';'. Never run anything that waits for input. Commands are stopped "
+        "after 300 seconds."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {"command": {"type": "string", "description": "PowerShell code to run"}},
+        "required": ["command"],
+        "additionalProperties": False,
+    },
+    "strict": True,
+    "eager_input_streaming": True,  # stream long commands as they're written; we validate below
+}
+CMD_TIMEOUT = 300  # seconds per shell command
 MAX_OUTPUT = 30_000  # chars of tool output sent back to the model
 
 SYSTEM = """You are a background worker agent. A user assigned you a task and is not watching \
 live, so work autonomously: don't ask questions, make reasonable assumptions and state them.
 
 Your workspace directory is {workspace}. It is your current directory; keep all files you \
-create inside it. You have a bash shell and a file editor.
+create inside it. This machine runs {os_name}. You have a {shell} shell tool and a file editor.
 
 When the task is complete, end with a short report: what you did, where the results are \
 (file paths), and anything that failed or still needs a human."""
@@ -54,7 +72,7 @@ class BashSession:
         self.proc = subprocess.Popen(
             ["bash", "--noprofile", "--norc"], cwd=self.cwd,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            start_new_session=True,
+            **oscompat.new_group_kwargs(),
         )
 
     def close(self) -> None:
@@ -92,6 +110,55 @@ class BashSession:
         return text + (f"\n[exit code {code}]" if code != "0" else "")
 
 
+class PowerShellSession:
+    """Runs each command in a fresh PowerShell process, carrying the current directory over.
+
+    (A persistent PowerShell reading from a pipe can't reliably tell where a multi-line command
+    ends, so we trade persistent variables for robustness.)"""
+
+    def __init__(self, cwd: Path):
+        self.workspace = self.cwd = cwd
+
+    def close(self) -> None:
+        self.cwd = self.workspace
+
+    def run(self, command: str) -> str:
+        marker = f"__TR_DONE_{uuid.uuid4().hex}__"
+        cwd = str(self.cwd).replace("'", "''")
+        script = (
+            f"Set-Location -LiteralPath '{cwd}'\n"
+            f"{command}\n"
+            "$__trCode = if ($LASTEXITCODE) { $LASTEXITCODE } elseif ($?) { 0 } else { 1 }\n"
+            f"Write-Output ('{marker}' + (Get-Location).ProviderPath + '|' + $__trCode)\n"
+        )
+        proc = subprocess.Popen(
+            oscompat.powershell_argv(script), cwd=self.workspace,
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            **oscompat.new_group_kwargs(),
+        )
+        try:
+            raw, _ = proc.communicate(timeout=CMD_TIMEOUT)
+            timed_out = False
+        except subprocess.TimeoutExpired:
+            oscompat.kill_tree(proc.pid, force=True)
+            raw, _ = proc.communicate()
+            timed_out = True
+        text = raw.decode("utf-8", errors="replace").replace("\ufeff", "").replace("\r\n", "\n")
+
+        code = str(proc.returncode)
+        at = text.rfind(marker)
+        if at != -1:
+            tail = text[at + len(marker):].strip()
+            text = text[:at]
+            path, _, code = tail.rpartition("|")
+            if path and Path(path).is_dir():
+                self.cwd = Path(path)
+        text = text.rstrip("\n") + ("\n" if text.strip() else "")
+        if timed_out:
+            return text + f"\n[command timed out after {CMD_TIMEOUT}s and was stopped]"
+        return text + (f"\n[exit code {code}]" if code not in ("0", "") else "")
+
+
 class Editor:
     """str_replace_based_edit_tool, confined to the workspace."""
 
@@ -112,7 +179,7 @@ class Editor:
                 items = sorted(str(p.relative_to(path)) + ("/" if p.is_dir() else "")
                                for p in path.rglob("*") if len(p.relative_to(path).parts) <= 2)
                 return "\n".join(items) or "(empty directory)"
-            lines = path.read_text(errors="replace").splitlines()
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
             start, end = 1, len(lines)
             if inp.get("view_range"):
                 start, end = inp["view_range"]
@@ -122,21 +189,21 @@ class Editor:
             if path.exists():
                 shutil.copy2(path, path.with_name(path.name + ".bak"))
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(inp["file_text"])
+            path.write_text(inp["file_text"], encoding="utf-8")
             return f"created {path.relative_to(self.root)}"
         if cmd == "str_replace":
-            text = path.read_text()
+            text = path.read_text(encoding="utf-8")
             n = text.count(inp["old_str"])
             if n != 1:
                 raise ValueError(f"old_str found {n} times in {path.name}; it must match exactly once")
-            path.write_text(text.replace(inp["old_str"], inp.get("new_str", ""), 1))
+            path.write_text(text.replace(inp["old_str"], inp.get("new_str", ""), 1), encoding="utf-8")
             return "replaced 1 occurrence"
         if cmd == "insert":
-            lines = path.read_text().splitlines(keepends=True)
+            lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
             at = int(inp["insert_line"])
             new = inp["insert_text"] if inp["insert_text"].endswith("\n") else inp["insert_text"] + "\n"
             lines.insert(at, new)
-            path.write_text("".join(lines))
+            path.write_text("".join(lines), encoding="utf-8")
             return f"inserted after line {at}"
         raise ValueError(f"unknown command {cmd!r}")
 
@@ -153,14 +220,24 @@ def _show(s: str, n: int = 2000) -> str:
 
 # ---------------------------------------------------------------- loop
 
-def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=sys.stdout) -> int:
-    """Returns a process exit code: 0 done, 1 failed."""
+def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=sys.stdout,
+              shell: str | None = None) -> int:
+    """Returns a process exit code: 0 done, 1 failed. shell: 'bash' or 'powershell' (default: by OS)."""
     def say(*a):
         print(*a, file=out, flush=True)
 
     workspace.mkdir(parents=True, exist_ok=True)
     client = client or anthropic.Anthropic()
-    bash, editor = BashSession(workspace), Editor(workspace)
+    shell = shell or ("powershell" if oscompat.IS_WINDOWS else "bash")
+    if shell == "powershell":
+        sh, shell_tool, os_name = PowerShellSession(workspace), POWERSHELL_TOOL, "Windows"
+    else:
+        sh, shell_tool = BashSession(workspace), BASH_TOOL
+        os_name = "macOS" if sys.platform == "darwin" else "Linux"
+    tools = [shell_tool, EDITOR_TOOL]
+    system = SYSTEM.format(workspace=workspace, os_name=os_name,
+                           shell="PowerShell" if shell == "powershell" else "bash")
+    editor = Editor(workspace)
     messages: list = [{"role": "user", "content": task}]
     say(f"Agent: {MODEL} (effort {EFFORT}) · workspace: {workspace}\nTask:\n{task}\n")
 
@@ -170,8 +247,8 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
             with client.beta.messages.stream(
                 model=MODEL,
                 max_tokens=64000,
-                system=SYSTEM.format(workspace=workspace),
-                tools=TOOLS,
+                system=system,
+                tools=tools,
                 messages=messages,
                 thinking={"type": "adaptive", "display": "summarized"},
                 output_config={"effort": EFFORT},
@@ -212,13 +289,16 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
                 if block.type != "tool_use":
                     continue
                 try:
-                    if block.name == "bash":
+                    if block.name == shell_tool["name"]:
                         if block.input.get("restart"):
-                            bash.close(); result = "shell restarted"
-                            say("▶ bash: (restart)")
+                            sh.close(); result = "shell restarted"
+                            say(f"▶ {shell}: (restart)")
                         else:
-                            say(f"▶ bash: {block.input['command']}")
-                            result = bash.run(block.input["command"])
+                            command = block.input.get("command")
+                            if not isinstance(command, str) or not command.strip():
+                                raise ValueError("missing 'command' (the input may have been cut off); try again")
+                            say(f"▶ {shell}: {command}")
+                            result = sh.run(command)
                     elif block.name == "str_replace_based_edit_tool":
                         say(f"▶ edit: {block.input.get('command')} {block.input.get('path')}")
                         result = editor.run(block.input)
@@ -248,7 +328,7 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
         say(f"✖ Could not reach the Anthropic API: {e}")
         return 1
     finally:
-        bash.close()
+        sh.close()
 
 
 def main(argv=None):
@@ -257,12 +337,14 @@ def main(argv=None):
     p.add_argument("--task-file", required=True, type=Path)
     p.add_argument("--max-turns", type=int, default=60)
     a = p.parse_args(argv)
+    if hasattr(sys.stdout, "reconfigure"):  # logs are UTF-8 on every OS (Windows defaults to a code page)
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if not any(os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")) \
             and not Path.home().joinpath(".config/anthropic").exists():
         print("✖ No Anthropic credentials found. Set ANTHROPIC_API_KEY in the environment "
               "where the task runner server runs, then retry this job.", flush=True)
         sys.exit(1)
-    sys.exit(run_agent(a.task_file.read_text(), a.workspace.resolve(), a.max_turns))
+    sys.exit(run_agent(a.task_file.read_text(encoding="utf-8"), a.workspace.resolve(), a.max_turns))
 
 
 if __name__ == "__main__":

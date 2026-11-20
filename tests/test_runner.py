@@ -4,6 +4,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from taskrunner.app import create_app
+from taskrunner.oscompat import IS_WINDOWS
+
+# The same job, written for the shell each OS uses (bash on macOS/Linux, PowerShell on Windows).
+OUT_AND_ERR = ("Write-Output hello; [Console]::Error.WriteLine('oops')" if IS_WINDOWS
+               else "echo hello; echo oops >&2")
 
 
 @pytest.fixture
@@ -12,7 +17,7 @@ def client(tmp_path):
         yield c
 
 
-def wait(client, job_id, until=("succeeded", "failed", "cancelled", "timed_out"), t=10):
+def wait(client, job_id, until=("succeeded", "failed", "cancelled", "timed_out"), t=30):
     end = time.time() + t
     while time.time() < end:
         j = client.get(f"/api/jobs/{job_id}").json()
@@ -23,7 +28,7 @@ def wait(client, job_id, until=("succeeded", "failed", "cancelled", "timed_out")
 
 
 def test_success_and_logs(client):
-    j = client.post("/api/jobs", json={"command": "echo hello; echo oops >&2"}).json()
+    j = client.post("/api/jobs", json={"command": OUT_AND_ERR}).json()
     j = wait(client, j["id"])
     assert j["status"] == "succeeded" and j["exit_code"] == 0
     text = client.get(f"/api/jobs/{j['id']}/logs").json()["text"]

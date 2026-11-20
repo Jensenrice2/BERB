@@ -88,7 +88,7 @@
     <form id="new">
       <div class="seg" role="tablist">
         <button type="button" data-kind="agent" class="on">🤖 AI agent</button>
-        <button type="button" data-kind="shell">$ Shell command</button>
+        <button type="button" data-kind="shell" id="shellTab">$ Shell command</button>
       </div>
       <textarea id="command" required></textarea>
       <p class="hint" id="hint"></p>
@@ -112,19 +112,22 @@
 </main>
 <script>
 const $ = s => document.querySelector(s);
-let selected = null, logOffset = 0, logTimer = null, kind = 'agent', filesSig = '';
+let selected = null, logOffset = 0, logTimer = null, kind = 'agent', filesSig = '', shellName = 'bash';
 const PLACEHOLDER = {
   agent: 'Describe the work in plain English, e.g.\nDownload the CSV at <url>, clean it up, and write a summary report to report.md',
   shell: 'Command to run, e.g.  python train.py --epochs 5',
+  powershell: 'PowerShell command to run, e.g.  python train.py --epochs 5',
 };
 const HINT = {
   agent: 'Claude works on this in the background using a shell and file editor in its own workspace.',
   shell: 'Runs exactly this command in the background.',
+  powershell: 'Runs exactly this command in PowerShell, in the background.',
 };
 function setKind(k) {
   kind = k;
   document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.dataset.kind === k));
-  $('#command').placeholder = PLACEHOLDER[k]; $('#hint').textContent = HINT[k];
+  const key = k === 'shell' && shellName === 'PowerShell' ? 'powershell' : k;
+  $('#command').placeholder = PLACEHOLDER[key]; $('#hint').textContent = HINT[key];
   $('#command').rows = k === 'agent' ? 4 : 2;
 }
 document.querySelector('.seg').addEventListener('click', e => { if (e.target.dataset.kind) setKind(e.target.dataset.kind); });
@@ -146,6 +149,11 @@ const badge = s => `<span class="badge s-${s}">${s.replace('_', ' ')}</span>`;
 async function refresh() {
   try {
     const [jobs, st] = await Promise.all([api('/api/jobs?status=' + $('#filter').value), api('/api/status')]);
+    if (st.shell && st.shell !== shellName) {
+      shellName = st.shell;
+      $('#shellTab').textContent = shellName === 'PowerShell' ? '> PowerShell' : '$ Shell command';
+      setKind(kind);
+    }
     $('#stats').textContent = `${st.running}/${st.concurrency} workers busy · ` +
       Object.entries(st.counts).map(([k, v]) => `${v} ${k.replace('_', ' ')}`).join(' · ');
     $('#jobs').innerHTML = jobs.length ? jobs.map(j => `

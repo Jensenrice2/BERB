@@ -1,12 +1,42 @@
 import io
 import os
+import shutil
+import sys
 import time
 from types import SimpleNamespace as NS
 
+import pytest
 from fastapi.testclient import TestClient
 
-from taskrunner.agent import run_agent
+from taskrunner import agent
+from taskrunner.agent import PowerShellSession, run_agent
 from taskrunner.app import create_app
+from taskrunner.oscompat import IS_WINDOWS
+
+HAVE_POWERSHELL = bool(shutil.which("pwsh") or shutil.which("powershell"))
+DEFAULT_SHELL = "powershell" if IS_WINDOWS else "bash"
+TOOL_NAME = {"bash": "bash", "powershell": "powershell"}
+
+# Each scenario, written for each shell.
+CMDS = {
+    "bash": {
+        "make": "mkdir -p out && cd out && echo 42 > answer.txt && pwd",
+        "read": "cat answer.txt",
+        "noop": "true",
+    },
+    "powershell": {
+        "make": "New-Item -ItemType Directory out | Out-Null; Set-Location out; "
+                "Set-Content -Path answer.txt -Value 42; Get-Location",
+        "read": "Get-Content answer.txt",
+        "noop": "$null",
+    },
+}
+
+shells = []
+if not IS_WINDOWS:
+    shells.append("bash")
+if HAVE_POWERSHELL:
+    shells.append("powershell")
 
 
 def tool_use(id, name, **inp):
@@ -49,24 +79,26 @@ class FakeClient:
         return FakeStream(self.turns.pop(0))
 
 
-def test_agent_uses_tools_and_finishes(tmp_path):
+@pytest.mark.parametrize("shell", shells)
+def test_agent_uses_tools_and_finishes(tmp_path, shell):
+    sh, c = TOOL_NAME[shell], CMDS[shell]
     client = FakeClient([
         NS(stop_reason="tool_use", content=[
             text("Setting up."),
-            tool_use("t1", "bash", command="mkdir -p out && cd out && echo 42 > answer.txt && pwd"),
-            tool_use("t2", "str_replace_based_edit_tool", command="create", path="notes.md", file_text="# Notes\n"),
+            tool_use("t1", sh, command=c["make"]),
+            tool_use("t2", "str_replace_based_edit_tool", command="create", path="notes.md", file_text="# Notes ✓\n"),
         ]),
         NS(stop_reason="tool_use", content=[
-            tool_use("t3", "bash", command="cat answer.txt"),  # cwd persisted into out/
-            tool_use("t4", "str_replace_based_edit_tool", command="view", path="/etc/passwd"),
+            tool_use("t3", sh, command=c["read"]),  # current directory carried over into out/
+            tool_use("t4", "str_replace_based_edit_tool", command="view", path=str(tmp_path.parent / "elsewhere.txt")),
         ]),
         NS(stop_reason="end_turn", content=[text("Done: wrote out/answer.txt and notes.md")]),
     ])
     log = io.StringIO()
-    assert run_agent("make files", tmp_path, client=client, out=log) == 0
+    assert run_agent("make files", tmp_path, client=client, out=log, shell=shell) == 0
 
-    assert (tmp_path / "out/answer.txt").read_text() == "42\n"
-    assert (tmp_path / "notes.md").read_text() == "# Notes\n"
+    assert (tmp_path / "out" / "answer.txt").read_text().strip() == "42"
+    assert (tmp_path / "notes.md").read_text(encoding="utf-8") == "# Notes ✓\n"
 
     # Turn 3's request carries both results from turn 2, each matched to its tool_use id.
     results = client.requests[2]["messages"][-1]["content"]
@@ -76,9 +108,27 @@ def test_agent_uses_tools_and_finishes(tmp_path):
 
     req = client.requests[0]
     assert req["model"] == "claude-opus-5-5"
-    assert {t["name"] for t in req["tools"]} == {"bash", "str_replace_based_edit_tool"}
+    assert {t["name"] for t in req["tools"]} == {sh, "str_replace_based_edit_tool"}
     assert str(tmp_path) in req["system"]
-    assert "Done: wrote" in log.getvalue() and "▶ bash" in log.getvalue()
+    assert ("PowerShell" if shell == "powershell" else "bash") in req["system"]
+    assert "Done: wrote" in log.getvalue() and f"▶ {shell}" in log.getvalue()
+
+
+def test_default_shell_matches_os(tmp_path):
+    client = FakeClient([NS(stop_reason="end_turn", content=[text("ok")])])
+    run_agent("x", tmp_path, client=client, out=io.StringIO())
+    names = {t["name"] for t in client.requests[0]["tools"]}
+    assert TOOL_NAME[DEFAULT_SHELL] in names
+
+
+def test_agent_rejects_cut_off_tool_input(tmp_path):
+    client = FakeClient([
+        NS(stop_reason="tool_use", content=[tool_use("t1", TOOL_NAME[DEFAULT_SHELL])]),  # no command
+        NS(stop_reason="end_turn", content=[text("gave up")]),
+    ])
+    assert run_agent("x", tmp_path, client=client, out=io.StringIO()) == 0
+    result = client.requests[1]["messages"][-1]["content"][0]
+    assert result["is_error"] and "missing 'command'" in result["content"]
 
 
 def test_agent_refusal_fails(tmp_path):
@@ -86,22 +136,46 @@ def test_agent_refusal_fails(tmp_path):
     assert run_agent("x", tmp_path, client=client, out=io.StringIO()) == 1
 
 
+@pytest.mark.skipif(IS_WINDOWS and not HAVE_POWERSHELL, reason="no shell available")
 def test_agent_turn_limit(tmp_path):
-    loop = [NS(stop_reason="tool_use", content=[tool_use(f"t{i}", "bash", command="true")]) for i in range(3)]
+    sh = TOOL_NAME[DEFAULT_SHELL]
+    loop = [NS(stop_reason="tool_use", content=[tool_use(f"t{i}", sh, command=CMDS[DEFAULT_SHELL]["noop"])])
+            for i in range(3)]
     log = io.StringIO()
     assert run_agent("x", tmp_path, max_turns=3, client=FakeClient(loop), out=log) == 1
     assert "limit of 3 turns" in log.getvalue()
+
+
+@pytest.mark.skipif(not HAVE_POWERSHELL, reason="PowerShell not installed")
+def test_powershell_session(tmp_path, monkeypatch):
+    ps = PowerShellSession(tmp_path)
+    assert ps.run("Write-Output 'héllo ✓'").strip() == "héllo ✓"  # UTF-8 round trip
+    ps.run("New-Item -ItemType Directory sub | Out-Null; Set-Location sub")
+    assert ps.run("(Get-Location).ProviderPath").strip() == str(tmp_path / "sub")  # cwd persists
+    assert "[exit code 3]" in ps.run("exit 3")
+    out = ps.run("Write-Error 'boom'")  # errors are captured, not lost
+    assert "boom" in out and "[exit code 1]" in out
+    py = f"& '{sys.executable}' -c \"import sys; sys.exit(5)\""
+    assert "[exit code 5]" in ps.run(py)  # native program exit codes
+    ps.close()
+    assert ps.run("(Get-Location).ProviderPath").strip() == str(tmp_path)  # restart resets cwd
+
+    monkeypatch.setattr(agent, "CMD_TIMEOUT", 2)
+    t0 = time.time()
+    assert "timed out" in ps.run("Start-Sleep -Seconds 60")
+    assert time.time() - t0 < 30
 
 
 def test_agent_job_via_api_without_credentials(tmp_path, monkeypatch):
     for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))  # no ~/.config/anthropic profile
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # (Windows home)
     with TestClient(create_app(tmp_path / "data")) as c:
         assert c.post("/api/jobs", json={"kind": "agent"}).status_code == 422
         j = c.post("/api/jobs", json={"kind": "agent", "task": "Write hello.txt"}).json()
         assert j["kind"] == "agent" and j["name"] == "Write hello.txt"
-        end = time.time() + 15
+        end = time.time() + 30
         while c.get(f"/api/jobs/{j['id']}").json()["status"] in ("queued", "running"):
             assert time.time() < end
             time.sleep(0.1)
@@ -111,7 +185,8 @@ def test_agent_job_via_api_without_credentials(tmp_path, monkeypatch):
         files = c.get(f"/api/jobs/{j['id']}/files").json()
         ws = files["workspace"]
         assert os.path.isdir(ws) and files["files"] == []
-        open(os.path.join(ws, "r.txt"), "w").write("hi")
+        with open(os.path.join(ws, "r.txt"), "w") as f:
+            f.write("hi")
         assert c.get(f"/api/jobs/{j['id']}/files").json()["files"][0]["path"] == "r.txt"
         assert c.get(f"/api/jobs/{j['id']}/files/r.txt").text == "hi"
         assert c.get(f"/api/jobs/{j['id']}/files/..%2F..%2Fjobs.db").status_code == 404
