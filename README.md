@@ -134,6 +134,13 @@ Each agent job runs `taskrunner/agent.py` as its own subprocess. Cancel, timeout
 
 - **Tools:** Claude gets a shell (a persistent bash session on macOS/Linux; PowerShell on Windows, where the current folder carries over between commands but variables don't) and a file editor. It works in `data/agent/<id>/workspace`, or in the working directory you give it.
 - **The web:** the agent can search the web, read pages and follow their links. These tools run on Anthropic's side, and web searches are billed per search on top of tokens. Turn them off with `TASKRUNNER_AGENT_WEB=0`.
+- **Using websites:** the agent can click buttons, type into fields, pick options and submit forms in its own browser window, which you can watch. On Windows it uses Microsoft Edge, on a Mac Google Chrome. If neither is installed, run `python -m playwright install chromium`. It has its own profile, separate from your everyday browser; if a site needs a login, log in once yourself in that window and it is remembered for later tasks. Turn it off with `TASKRUNNER_AGENT_BROWSER=0`; run it hidden with `TASKRUNNER_BROWSER_HEADLESS=1`.
+- **Browser safety:**
+  - The agent can't type passwords or payment-card details; the browser code blocks it, so you do those steps yourself.
+  - "Are you sure?" pop-ups are always dismissed, never accepted.
+  - The agent is told never to buy, pay, book, send, post, delete or change account settings unless your task explicitly asks for that action. Otherwise it stops before the final button and reports what's ready to submit.
+  - It's told to ignore instructions written on web pages.
+  - Those last two are instructions to the model, not hard blocks, so watch the window when a task involves accounts you care about.
 - **Opening tabs:** when a task asks for it ("open the top 5 results"), the agent opens pages as new tabs in your default browser. Only http/https links, at most 15 per task (`TASKRUNNER_AGENT_MAX_TABS`).
 - **Limits:** a run stops after 60 model turns, and each bash command stops after 5 minutes. Set a job timeout to cap wall-clock time.
 - **Log:** shows Claude's reasoning summaries, its messages, every command it runs, and a final report.

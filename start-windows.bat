@@ -11,17 +11,20 @@ py -3 --version >nul 2>nul && set "PY=py -3"
 if not defined PY python --version >nul 2>nul && set "PY=python"
 if not defined PY goto :nopython
 
-rem --- first run: create the app's private Python environment and install its packages
-if exist ".venv\Scripts\python.exe" goto :ready
+rem --- first run: create the app's private Python environment
+if exist ".venv\Scripts\python.exe" goto :install
 echo.
 echo  First-time setup: installing what Task Runner needs. This takes a minute or two...
 echo.
 %PY% -m venv .venv
 if errorlevel 1 goto :fail
-".venv\Scripts\python.exe" -m pip install --disable-pip-version-check -r requirements.txt
+
+:install
+rem --- every run: install anything new the app needs (quick when nothing changed)
+echo  Checking that everything Task Runner needs is installed...
+".venv\Scripts\python.exe" -m pip install --disable-pip-version-check -q -r requirements.txt
 if errorlevel 1 goto :fail
 
-:ready
 rem --- optional: load the Anthropic API key (for AI agent tasks) from a file named .env
 if exist ".env" for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do set "%%A=%%B"
 if defined TASKRUNNER_SETUP_ONLY exit /b 0

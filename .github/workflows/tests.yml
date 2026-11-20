@@ -21,6 +21,9 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Install
         run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Browser for the agent (Linux; Windows uses Edge, macOS uses Chrome, both preinstalled)
+        if: runner.os == 'Linux'
+        run: python -m playwright install --with-deps chromium
       - name: Test
         run: python -m pytest -v -rs tests
       - name: Double-click launcher sets up a fresh copy (Windows)
