@@ -36,7 +36,9 @@ py -m venv .venv; .venv\Scripts\pip install -r requirements.txt
 
 (No git? Download the ZIP from the GitHub page with **Code → Download ZIP**, unzip it, and run the last two lines inside the folder.)
 
-Then open http://127.0.0.1:8765. The server runs while that window stays open.
+Then open **http://berb.localhost** (or **http://localhost** on a Mac). The server runs while that window stays open.
+
+The app uses the standard web port 80 when it's free, so the address has no port number. If something else on your computer already uses port 80, it moves to port 8765 instead (`http://berb.localhost:8765`); the window shows the exact address. Rename it by setting `TASKRUNNER_NAME`, e.g. `TASKRUNNER_NAME=tasks` gives `http://tasks.localhost`.
 
 On Windows, shell jobs run in **PowerShell** (PowerShell 7 if installed, otherwise the Windows PowerShell built into Windows), and AI agents get a PowerShell tool. On macOS/Linux both use **bash**.
 
@@ -45,7 +47,7 @@ On Windows, shell jobs run in **PowerShell** (PowerShell 7 if installed, otherwi
 1. **File → Open Folder…** and choose the `taskrunner` folder. Install the **Python** extension if VS Code suggests it.
 2. **Terminal → Run Task… → Set up (first time).** This creates `.venv` and installs everything. If VS Code asks which Python environment to use, pick `.venv`.
 3. Optional, for AI agent tasks: copy `.env.example` to `.env` and put your Anthropic API key in it.
-4. Open **Run and Debug** (`Ctrl+Shift+D`, or `Cmd+Shift+D` on Mac), choose **Task Runner: start server**, and press **F5**. Then open http://127.0.0.1:8765.
+4. Open **Run and Debug** (`Ctrl+Shift+D`, or `Cmd+Shift+D` on Mac), choose **Task Runner: start server**, and press **F5**. Then open http://berb.localhost.
 
 You can set breakpoints anywhere in `taskrunner/`. Tests are under the **Testing** (flask) icon, or **Terminal → Run Task… → Run tests**.
 
@@ -64,7 +66,7 @@ Where things live:
 
 ## Install it as a desktop app (macOS / Windows)
 
-With the server running, open http://127.0.0.1:8765 and:
+With the server running, open http://berb.localhost and:
 
 - **Mac, Safari** (macOS Sonoma or later): **File → Add to Dock**.
 - **Windows/Mac/Linux, Chrome or Edge**: click **Install app** in the page header, or the install icon in the address bar.
@@ -86,7 +88,7 @@ $env:ANTHROPIC_API_KEY = "sk-ant-..."      # Windows PowerShell
 ## Run
 
 ```bash
-.venv/bin/python -m taskrunner.cli serve        # dashboard at http://127.0.0.1:8765
+.venv/bin/python -m taskrunner.cli serve        # dashboard at http://berb.localhost
 ```
 
 ## Assign work from the CLI
@@ -120,7 +122,8 @@ Interactive docs: `/docs`.
 
 - `TASKRUNNER_DATA`: where `jobs.db` and `logs/` are stored (default `./data`)
 - `TASKRUNNER_CONCURRENCY`: how many jobs run at once (default 2)
-- `TASKRUNNER_URL`: the server the CLI talks to (default `http://127.0.0.1:8765`)
+- `TASKRUNNER_NAME`: the name in the address, `http://<name>.localhost` (default `berb`)
+- `TASKRUNNER_URL`: the server the CLI talks to (default: finds it on port 80 or 8765)
 
 - `TASKRUNNER_AGENT_MODEL`: the agent's model (default `claude-opus-5-5`)
 - `TASKRUNNER_AGENT_EFFORT`: `low` / `medium` / `high` / `xhigh` / `max` (default `high`). Lower is cheaper and faster.

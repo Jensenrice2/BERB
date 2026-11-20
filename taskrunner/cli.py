@@ -19,12 +19,56 @@ import time
 import urllib.error
 import urllib.request
 
-URL = os.environ.get("TASKRUNNER_URL", "http://127.0.0.1:8765")
+# The app's address: http://berb.localhost (any name ending in ".localhost" means "this computer"
+# to Edge, Chrome and Firefox). It uses the standard web port 80 when it's free, so no ":8765".
+NAME = os.environ.get("TASKRUNNER_NAME", "berb")
+PORTS = (80, 8765)  # first free one wins
+_url: str | None = os.environ.get("TASKRUNNER_URL")
+
+
+def pretty_url(port: int) -> str:
+    # Safari on macOS doesn't resolve *.localhost names, so plain localhost there.
+    host = "localhost" if sys.platform == "darwin" else f"{NAME}.localhost"
+    return f"http://{host}" + ("" if port == 80 else f":{port}")
+
+
+def pick_port(host: str) -> int:
+    import socket
+    for port in PORTS:
+        with socket.socket() as sock:
+            if os.name != "nt":
+                # Match the server: ignore ports only cooling down after a previous run (TIME_WAIT).
+                # (Not on Windows, where this option would let two programs share a port.)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind((host, port))
+                return port
+            except OSError:
+                continue
+    sys.exit(f"Ports {' and '.join(map(str, PORTS))} are both in use. "
+             "Is Task Runner already running? Otherwise start it with --port 9000")
+
+
+def server_url() -> str:
+    """Where the CLI finds the server: TASKRUNNER_URL, else whichever usual port answers."""
+    global _url
+    if _url:
+        return _url
+    for port in PORTS:
+        candidate = f"http://127.0.0.1:{port}"
+        try:
+            urllib.request.urlopen(candidate + "/api/status", timeout=1).close()
+            _url = candidate
+            return _url
+        except OSError:
+            continue
+    sys.exit("cannot reach Task Runner. Start it with: python -m taskrunner.cli serve")
 
 
 def call(method: str, path: str, body: dict | None = None):
+    url = server_url()
     req = urllib.request.Request(
-        URL + path, method=method,
+        url + path, method=method,
         data=json.dumps(body).encode() if body is not None else None,
         headers={"Content-Type": "application/json"},
     )
@@ -36,7 +80,7 @@ def call(method: str, path: str, body: dict | None = None):
         detail = json.loads(e.read() or b"{}").get("detail", e.reason)
         sys.exit(f"error: {detail}")
     except urllib.error.URLError as e:
-        sys.exit(f"cannot reach server at {URL} ({e.reason}). Start it with: python -m taskrunner.cli serve")
+        sys.exit(f"cannot reach server at {url} ({e.reason}). Start it with: python -m taskrunner.cli serve")
 
 
 def fmt(j: dict) -> str:
@@ -44,15 +88,15 @@ def fmt(j: dict) -> str:
     return f"#{j['id']:<4} {j['status']:<10} {kind}{j['name']}"
 
 
-def _open_when_ready(url: str) -> None:
+def _open_when_ready(check_url: str, open_url: str) -> None:
     import threading
     import webbrowser
 
     def wait_then_open():
         for _ in range(100):
             try:
-                urllib.request.urlopen(url + "/api/status", timeout=1).close()
-                webbrowser.open(url)
+                urllib.request.urlopen(check_url + "/api/status", timeout=1).close()
+                webbrowser.open(open_url)
                 return
             except OSError:
                 time.sleep(0.2)
@@ -63,7 +107,8 @@ def _open_when_ready(url: str) -> None:
 def main(argv=None):
     p = argparse.ArgumentParser(prog="taskrunner", description="Run shell jobs in the background.")
     sub = p.add_subparsers(dest="cmd", required=True)
-    s = sub.add_parser("serve"); s.add_argument("--host", default="127.0.0.1"); s.add_argument("--port", type=int, default=8765)
+    s = sub.add_parser("serve"); s.add_argument("--host", default="127.0.0.1"); s.add_argument("--port", type=int, default=None,
+                                                                                    help="default: 80 if free, else 8765")
     s.add_argument("--open", action="store_true", help="open the dashboard in your browser once it's ready")
     a = sub.add_parser("add"); a.add_argument("command"); a.add_argument("--name"); a.add_argument("--cwd"); a.add_argument("--timeout", type=float)
     ag = sub.add_parser("agent"); ag.add_argument("task"); ag.add_argument("--name"); ag.add_argument("--cwd"); ag.add_argument("--timeout", type=float)
@@ -76,12 +121,14 @@ def main(argv=None):
 
     if args.cmd == "serve":
         import uvicorn
-        url = f"http://127.0.0.1:{args.port}"
+        port = args.port or pick_port(args.host)
+        url = pretty_url(port)
         if args.open:
-            _open_when_ready(url)
-        print(f"Task Runner is running at {url}  (keep this window open; close it or press Ctrl+C to stop)",
-              flush=True)
-        uvicorn.run("taskrunner.app:app", host=args.host, port=args.port, log_level="warning")
+            _open_when_ready(f"http://127.0.0.1:{port}", url)
+        print(f"Task Runner is running at {url}\n"
+              f"  (also http://localhost{'' if port == 80 else f':{port}'})\n"
+              "  Keep this window open; close it or press Ctrl+C to stop.", flush=True)
+        uvicorn.run("taskrunner.app:app", host=args.host, port=port, log_level="warning")
     elif args.cmd == "add":
         body = {k: v for k, v in vars(args).items() if k in ("command", "name", "cwd", "timeout") and v is not None}
         if "cwd" in body:

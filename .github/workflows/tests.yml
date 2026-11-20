@@ -41,3 +41,14 @@ jobs:
           python -m taskrunner.cli serve --port 8799 > server.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8799/api/status && exit 0; sleep 1; done
           cat server.log; exit 1
+      - name: Default address (berb.localhost, port 80 when free)
+        shell: bash
+        run: |
+          python -m taskrunner.cli serve > auto.log 2>&1 &
+          for i in $(seq 1 60); do
+            for u in http://berb.localhost http://berb.localhost:8765; do
+              if curl -sf "$u/api/status" >/dev/null; then echo "OK: $u"; head -1 auto.log; exit 0; fi
+            done
+            sleep 1
+          done
+          cat auto.log; exit 1
