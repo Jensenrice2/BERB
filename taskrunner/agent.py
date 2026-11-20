@@ -1,0 +1,269 @@
+"""AI agent job: Claude carries out a plain-English task inside a workspace directory.
+
+Run by the task runner as a subprocess, so cancel / timeout / live logs / retry all work
+like any other job. Everything printed here lands in the job's log.
+
+    python -m taskrunner.agent --workspace DIR --task-file FILE [--max-turns N]
+
+Credentials come from the environment (ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN,
+or an `ant auth login` profile).
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import selectors
+import shutil
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+
+import anthropic
+
+MODEL = os.environ.get("TASKRUNNER_AGENT_MODEL", "claude-opus-5-5")
+EFFORT = os.environ.get("TASKRUNNER_AGENT_EFFORT", "high")
+TOOLS = [
+    {"type": "bash_20250124", "name": "bash"},
+    {"type": "text_editor_20250728", "name": "str_replace_based_edit_tool"},
+]
+CMD_TIMEOUT = 300  # seconds per bash command
+MAX_OUTPUT = 30_000  # chars of tool output sent back to the model
+
+SYSTEM = """You are a background worker agent. A user assigned you a task and is not watching \
+live, so work autonomously: don't ask questions, make reasonable assumptions and state them.
+
+Your workspace directory is {workspace}. It is your current directory; keep all files you \
+create inside it. You have a bash shell and a file editor.
+
+When the task is complete, end with a short report: what you did, where the results are \
+(file paths), and anything that failed or still needs a human."""
+
+
+# ---------------------------------------------------------------- tools
+
+class BashSession:
+    """A persistent bash process, so `cd`, env vars, etc. carry across commands."""
+
+    def __init__(self, cwd: Path):
+        self.cwd = cwd
+        self.proc: subprocess.Popen | None = None
+
+    def start(self) -> None:
+        self.proc = subprocess.Popen(
+            ["bash", "--noprofile", "--norc"], cwd=self.cwd,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+
+    def close(self) -> None:
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()
+            self.proc.wait()
+        self.proc = None
+
+    def run(self, command: str) -> str:
+        if self.proc is None or self.proc.poll() is not None:
+            self.start()
+        marker = f"__DONE_{uuid.uuid4().hex}__".encode()
+        self.proc.stdin.write(b"{ " + command.encode() + b"\n} < /dev/null 2>&1; echo \"" + marker + b" $?\"\n")
+        self.proc.stdin.flush()
+
+        fd, buf = self.proc.stdout.fileno(), b""
+        sel = selectors.DefaultSelector()
+        sel.register(fd, selectors.EVENT_READ)
+        deadline = time.time() + CMD_TIMEOUT
+        try:
+            while marker not in buf:
+                if not sel.select(timeout=max(0, deadline - time.time())):
+                    self.close()
+                    return buf.decode(errors="replace") + f"\n[command timed out after {CMD_TIMEOUT}s; shell restarted]"
+                chunk = os.read(fd, 65536)
+                if not chunk:  # shell exited (e.g. the command ran `exit`)
+                    self.close()
+                    return buf.decode(errors="replace") + "\n[shell exited; it restarts on the next command]"
+                buf += chunk
+        finally:
+            sel.close()
+        out, _, tail = buf.partition(marker)
+        code = tail.split()[0].decode() if tail.split() else "?"
+        text = out.decode(errors="replace")
+        return text + (f"\n[exit code {code}]" if code != "0" else "")
+
+
+class Editor:
+    """str_replace_based_edit_tool, confined to the workspace."""
+
+    def __init__(self, root: Path):
+        self.root = root.resolve()
+
+    def _path(self, raw: str) -> Path:
+        p = Path(raw)
+        p = (p if p.is_absolute() else self.root / p).resolve()
+        if not p.is_relative_to(self.root):
+            raise ValueError(f"path {raw!r} is outside the workspace {self.root}")
+        return p
+
+    def run(self, inp: dict) -> str:
+        cmd, path = inp.get("command"), self._path(inp.get("path", ""))
+        if cmd == "view":
+            if path.is_dir():
+                items = sorted(str(p.relative_to(path)) + ("/" if p.is_dir() else "")
+                               for p in path.rglob("*") if len(p.relative_to(path).parts) <= 2)
+                return "\n".join(items) or "(empty directory)"
+            lines = path.read_text(errors="replace").splitlines()
+            start, end = 1, len(lines)
+            if inp.get("view_range"):
+                start, end = inp["view_range"]
+                end = len(lines) if end == -1 else end
+            return "\n".join(f"{i}\t{lines[i - 1]}" for i in range(start, end + 1))
+        if cmd == "create":
+            if path.exists():
+                shutil.copy2(path, path.with_name(path.name + ".bak"))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(inp["file_text"])
+            return f"created {path.relative_to(self.root)}"
+        if cmd == "str_replace":
+            text = path.read_text()
+            n = text.count(inp["old_str"])
+            if n != 1:
+                raise ValueError(f"old_str found {n} times in {path.name}; it must match exactly once")
+            path.write_text(text.replace(inp["old_str"], inp.get("new_str", ""), 1))
+            return "replaced 1 occurrence"
+        if cmd == "insert":
+            lines = path.read_text().splitlines(keepends=True)
+            at = int(inp["insert_line"])
+            new = inp["insert_text"] if inp["insert_text"].endswith("\n") else inp["insert_text"] + "\n"
+            lines.insert(at, new)
+            path.write_text("".join(lines))
+            return f"inserted after line {at}"
+        raise ValueError(f"unknown command {cmd!r}")
+
+
+def _clip(s: str, n: int = MAX_OUTPUT) -> str:
+    return s if len(s) <= n else s[: n // 2] + f"\n... [{len(s) - n} chars truncated] ...\n" + s[-n // 2:]
+
+
+def _show(s: str, n: int = 2000) -> str:
+    """Shorter excerpt for the human-readable log."""
+    s = s.rstrip()
+    return s if len(s) <= n else s[:n] + f"\n  ... ({len(s) - n} more chars)"
+
+
+# ---------------------------------------------------------------- loop
+
+def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=sys.stdout) -> int:
+    """Returns a process exit code: 0 done, 1 failed."""
+    def say(*a):
+        print(*a, file=out, flush=True)
+
+    workspace.mkdir(parents=True, exist_ok=True)
+    client = client or anthropic.Anthropic()
+    bash, editor = BashSession(workspace), Editor(workspace)
+    messages: list = [{"role": "user", "content": task}]
+    say(f"Agent: {MODEL} (effort {EFFORT}) · workspace: {workspace}\nTask:\n{task}\n")
+
+    try:
+        for turn in range(1, max_turns + 1):
+            say(f"\n── turn {turn} ──")
+            with client.beta.messages.stream(
+                model=MODEL,
+                max_tokens=64000,
+                system=SYSTEM.format(workspace=workspace),
+                tools=TOOLS,
+                messages=messages,
+                thinking={"type": "adaptive", "display": "summarized"},
+                output_config={"effort": EFFORT},
+                cache_control={"type": "ephemeral"},  # cache the growing conversation prefix
+                betas=["server-side-fallback-2026-07-01"],
+                fallbacks="default",  # if the model declines, the API retries on a fallback model
+            ) as stream:
+                in_thinking = False
+                for event in stream:
+                    if event.type == "content_block_delta":
+                        if event.delta.type == "thinking_delta" and event.delta.thinking:
+                            if not in_thinking:
+                                out.write("💭 "); in_thinking = True
+                            out.write(event.delta.thinking); out.flush()
+                        elif event.delta.type == "text_delta":
+                            out.write(event.delta.text); out.flush()
+                    elif event.type == "content_block_stop" and in_thinking:
+                        out.write("\n"); in_thinking = False
+                response = stream.get_final_message()
+            say()
+
+            messages.append({"role": "assistant", "content": response.content})
+
+            if response.stop_reason == "refusal":
+                say("✖ The model declined this task.")
+                return 1
+            if response.stop_reason == "end_turn":
+                say(f"✔ Agent finished after {turn} turn(s).")
+                return 0
+            if response.stop_reason == "pause_turn":
+                continue
+            if response.stop_reason == "max_tokens":
+                messages.append({"role": "user", "content": "You hit the output limit; continue, in smaller steps."})
+                continue
+
+            results = []
+            for block in response.content:
+                if block.type != "tool_use":
+                    continue
+                try:
+                    if block.name == "bash":
+                        if block.input.get("restart"):
+                            bash.close(); result = "shell restarted"
+                            say("▶ bash: (restart)")
+                        else:
+                            say(f"▶ bash: {block.input['command']}")
+                            result = bash.run(block.input["command"])
+                    elif block.name == "str_replace_based_edit_tool":
+                        say(f"▶ edit: {block.input.get('command')} {block.input.get('path')}")
+                        result = editor.run(block.input)
+                    else:
+                        raise ValueError(f"unknown tool {block.name}")
+                    say(_show(result) or "(no output)")
+                    results.append({"type": "tool_result", "tool_use_id": block.id,
+                                    "content": _clip(result) or "(no output)"})
+                except Exception as e:
+                    say(f"  ✖ {e}")
+                    results.append({"type": "tool_result", "tool_use_id": block.id,
+                                    "content": f"Error: {e}", "is_error": True})
+            if not results:
+                say(f"✖ Unexpected stop reason: {response.stop_reason}")
+                return 1
+            messages.append({"role": "user", "content": results})
+
+        say(f"✖ Stopped: reached the limit of {max_turns} turns.")
+        return 1
+    except anthropic.AuthenticationError:
+        say("✖ No valid Anthropic credentials. Set ANTHROPIC_API_KEY for the task runner server.")
+        return 1
+    except anthropic.APIStatusError as e:
+        say(f"✖ API error {e.status_code}: {e.message}")
+        return 1
+    except anthropic.APIConnectionError as e:
+        say(f"✖ Could not reach the Anthropic API: {e}")
+        return 1
+    finally:
+        bash.close()
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser()
+    p.add_argument("--workspace", required=True, type=Path)
+    p.add_argument("--task-file", required=True, type=Path)
+    p.add_argument("--max-turns", type=int, default=60)
+    a = p.parse_args(argv)
+    if not any(os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")) \
+            and not Path.home().joinpath(".config/anthropic").exists():
+        print("✖ No Anthropic credentials found. Set ANTHROPIC_API_KEY in the environment "
+              "where the task runner server runs, then retry this job.", flush=True)
+        sys.exit(1)
+    sys.exit(run_agent(a.task_file.read_text(), a.workspace.resolve(), a.max_turns))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,117 @@
+import io
+import os
+import time
+from types import SimpleNamespace as NS
+
+from fastapi.testclient import TestClient
+
+from taskrunner.agent import run_agent
+from taskrunner.app import create_app
+
+
+def tool_use(id, name, **inp):
+    return NS(type="tool_use", id=id, name=name, input=inp)
+
+
+def text(t):
+    return NS(type="text", text=t)
+
+
+class FakeStream:
+    def __init__(self, msg):
+        self.msg = msg
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def __iter__(self):
+        for b in self.msg.content:
+            if b.type == "text":
+                yield NS(type="content_block_delta", delta=NS(type="text_delta", text=b.text))
+        yield NS(type="message_stop")
+
+    def get_final_message(self):
+        return self.msg
+
+
+class FakeClient:
+    """Replays scripted assistant turns and records every request."""
+
+    def __init__(self, turns):
+        self.turns, self.requests = list(turns), []
+        self.beta = NS(messages=NS(stream=self._stream))
+
+    def _stream(self, **kw):
+        self.requests.append({**kw, "messages": list(kw["messages"])})
+        return FakeStream(self.turns.pop(0))
+
+
+def test_agent_uses_tools_and_finishes(tmp_path):
+    client = FakeClient([
+        NS(stop_reason="tool_use", content=[
+            text("Setting up."),
+            tool_use("t1", "bash", command="mkdir -p out && cd out && echo 42 > answer.txt && pwd"),
+            tool_use("t2", "str_replace_based_edit_tool", command="create", path="notes.md", file_text="# Notes\n"),
+        ]),
+        NS(stop_reason="tool_use", content=[
+            tool_use("t3", "bash", command="cat answer.txt"),  # cwd persisted into out/
+            tool_use("t4", "str_replace_based_edit_tool", command="view", path="/etc/passwd"),
+        ]),
+        NS(stop_reason="end_turn", content=[text("Done: wrote out/answer.txt and notes.md")]),
+    ])
+    log = io.StringIO()
+    assert run_agent("make files", tmp_path, client=client, out=log) == 0
+
+    assert (tmp_path / "out/answer.txt").read_text() == "42\n"
+    assert (tmp_path / "notes.md").read_text() == "# Notes\n"
+
+    # Turn 3's request carries both results from turn 2, each matched to its tool_use id.
+    results = client.requests[2]["messages"][-1]["content"]
+    by_id = {r["tool_use_id"]: r for r in results}
+    assert by_id["t3"]["content"].strip() == "42"
+    assert by_id["t4"]["is_error"] and "outside the workspace" in by_id["t4"]["content"]
+
+    req = client.requests[0]
+    assert req["model"] == "claude-opus-5-5"
+    assert {t["name"] for t in req["tools"]} == {"bash", "str_replace_based_edit_tool"}
+    assert str(tmp_path) in req["system"]
+    assert "Done: wrote" in log.getvalue() and "▶ bash" in log.getvalue()
+
+
+def test_agent_refusal_fails(tmp_path):
+    client = FakeClient([NS(stop_reason="refusal", content=[])])
+    assert run_agent("x", tmp_path, client=client, out=io.StringIO()) == 1
+
+
+def test_agent_turn_limit(tmp_path):
+    loop = [NS(stop_reason="tool_use", content=[tool_use(f"t{i}", "bash", command="true")]) for i in range(3)]
+    log = io.StringIO()
+    assert run_agent("x", tmp_path, max_turns=3, client=FakeClient(loop), out=log) == 1
+    assert "limit of 3 turns" in log.getvalue()
+
+
+def test_agent_job_via_api_without_credentials(tmp_path, monkeypatch):
+    for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))  # no ~/.config/anthropic profile
+    with TestClient(create_app(tmp_path / "data")) as c:
+        assert c.post("/api/jobs", json={"kind": "agent"}).status_code == 422
+        j = c.post("/api/jobs", json={"kind": "agent", "task": "Write hello.txt"}).json()
+        assert j["kind"] == "agent" and j["name"] == "Write hello.txt"
+        end = time.time() + 15
+        while c.get(f"/api/jobs/{j['id']}").json()["status"] in ("queued", "running"):
+            assert time.time() < end
+            time.sleep(0.1)
+        assert c.get(f"/api/jobs/{j['id']}").json()["status"] == "failed"
+        assert "ANTHROPIC_API_KEY" in c.get(f"/api/jobs/{j['id']}/logs").json()["text"]
+
+        files = c.get(f"/api/jobs/{j['id']}/files").json()
+        ws = files["workspace"]
+        assert os.path.isdir(ws) and files["files"] == []
+        open(os.path.join(ws, "r.txt"), "w").write("hi")
+        assert c.get(f"/api/jobs/{j['id']}/files").json()["files"][0]["path"] == "r.txt"
+        assert c.get(f"/api/jobs/{j['id']}/files/r.txt").text == "hi"
+        assert c.get(f"/api/jobs/{j['id']}/files/..%2F..%2Fjobs.db").status_code == 404

@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task Runner</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1d2430; --muted: #6b7380; --border: #e2e5ea;
+    --accent: #2f6fde; --ok: #1f8a4c; --bad: #c9372c; --warn: #b7791f; --run: #2f6fde;
+    --code-bg: #0f141b; --code-text: #d6dde8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10141a; --panel: #171c24; --text: #e4e8ee; --muted: #8a93a1; --border: #262d38;
+      --accent: #5b8ff0; --ok: #3fb872; --bad: #e5675d; --warn: #e0a640; --run: #5b8ff0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+  header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex;
+           align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; }
+  #stats { color: var(--muted); font-size: 13px; }
+  main { display: grid; grid-template-columns: minmax(320px, 1fr) 1.3fr; gap: 16px; padding: 16px 20px; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 16px; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; min-width: 0; }
+  form { display: grid; gap: 8px; margin-bottom: 14px; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; min-width: 0; }
+  input, textarea, button, select { font: inherit; color: inherit; }
+  input, textarea, select { width: 100%; padding: 7px 9px; border: 1px solid var(--border);
+                            border-radius: 6px; background: var(--bg); }
+  textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; min-height: 60px; }
+  button { padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border);
+           background: var(--panel); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  ul#jobs { list-style: none; margin: 0; padding: 0; }
+  ul#jobs li { padding: 9px 8px; border-top: 1px solid var(--border); cursor: pointer;
+               display: flex; gap: 10px; align-items: center; }
+  ul#jobs li:hover, ul#jobs li.sel { background: var(--bg); }
+  .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .badge { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 10px;
+           border: 1px solid currentColor; white-space: nowrap; }
+  .s-queued { color: var(--muted); } .s-running { color: var(--run); }
+  .s-succeeded { color: var(--ok); } .s-failed, .s-timed_out { color: var(--bad); }
+  .s-cancelled { color: var(--warn); }
+  #detail h2 { font-size: 16px; margin: 0 0 4px; word-break: break-word; }
+  #detail .cmd { font-family: ui-monospace, Menlo, monospace; color: var(--muted); word-break: break-all; }
+  #detail .actions { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+  pre#log { background: var(--code-bg); color: var(--code-text); padding: 12px; border-radius: 8px;
+            height: 60vh; overflow: auto; margin: 0; font-size: 12.5px; white-space: pre-wrap; word-break: break-all; }
+  .empty { color: var(--muted); padding: 20px 0; text-align: center; }
+  .filter { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .filter select { width: auto; }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .seg button { flex: 1; border: 0; border-radius: 0; background: transparent; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .hint { color: var(--muted); font-size: 12px; margin: -2px 0 0; }
+  .kind { font-size: 13px; }
+  #files { margin: 0 0 10px; font-size: 13px; }
+  #files a { color: var(--accent); text-decoration: none; }
+  #files li { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+  #files .path { color: var(--muted); font-size: 12px; word-break: break-all; }
+  #files ul { list-style: none; padding: 0; margin: 4px 0 0; max-height: 140px; overflow: auto; }
+  #detail .task { white-space: pre-wrap; word-break: break-word; color: var(--muted); max-height: 120px; overflow: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Task Runner</h1>
+  <span id="stats"></span>
+</header>
+<main>
+  <section class="panel">
+    <form id="new">
+      <div class="seg" role="tablist">
+        <button type="button" data-kind="agent" class="on">🤖 AI agent</button>
+        <button type="button" data-kind="shell">$ Shell command</button>
+      </div>
+      <textarea id="command" required></textarea>
+      <p class="hint" id="hint"></p>
+      <div class="row">
+        <input id="name" placeholder="Name (optional)">
+        <input id="timeout" type="number" min="1" placeholder="Timeout sec (optional)">
+      </div>
+      <input id="cwd" placeholder="Working directory (optional; agents get a fresh workspace by default)">
+      <button class="primary" type="submit">Run in background</button>
+    </form>
+    <div class="filter">
+      <strong>Jobs</strong>
+      <select id="filter">
+        <option value="">All</option><option>queued</option><option>running</option>
+        <option>succeeded</option><option>failed</option><option>timed_out</option><option>cancelled</option>
+      </select>
+    </div>
+    <ul id="jobs"></ul>
+  </section>
+  <section class="panel" id="detail"><div class="empty">Select a job to see its output.</div></section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+let selected = null, logOffset = 0, logTimer = null, kind = 'agent', filesSig = '';
+const PLACEHOLDER = {
+  agent: 'Describe the work in plain English, e.g.\nDownload the CSV at <url>, clean it up, and write a summary report to report.md',
+  shell: 'Command to run, e.g.  python train.py --epochs 5',
+};
+const HINT = {
+  agent: 'Claude works on this in the background using a shell and file editor in its own workspace.',
+  shell: 'Runs exactly this command in the background.',
+};
+function setKind(k) {
+  kind = k;
+  document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.dataset.kind === k));
+  $('#command').placeholder = PLACEHOLDER[k]; $('#hint').textContent = HINT[k];
+  $('#command').rows = k === 'agent' ? 4 : 2;
+}
+document.querySelector('.seg').addEventListener('click', e => { if (e.target.dataset.kind) setKind(e.target.dataset.kind); });
+setKind('agent');
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || r.statusText); }
+  return r.status === 204 ? null : r.json();
+}
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const dur = j => {
+  if (!j.started_at) return '';
+  const s = ((j.finished_at || Date.now() / 1000) - j.started_at);
+  return s < 60 ? s.toFixed(1) + 's' : Math.floor(s / 60) + 'm ' + Math.floor(s % 60) + 's';
+};
+const badge = s => `<span class="badge s-${s}">${s.replace('_', ' ')}</span>`;
+
+async function refresh() {
+  try {
+    const [jobs, st] = await Promise.all([api('/api/jobs?status=' + $('#filter').value), api('/api/status')]);
+    $('#stats').textContent = `${st.running}/${st.concurrency} workers busy · ` +
+      Object.entries(st.counts).map(([k, v]) => `${v} ${k.replace('_', ' ')}`).join(' · ');
+    $('#jobs').innerHTML = jobs.length ? jobs.map(j => `
+      <li data-id="${j.id}" class="${j.id === selected ? 'sel' : ''}">
+        ${badge(j.status)}<span class="name">${j.kind === 'agent' ? '<span class="kind" title="AI agent">🤖</span> ' : ''}#${j.id} ${esc(j.name)}</span><span class="meta">${dur(j)}</span>
+      </li>`).join('') : '<li class="empty">No jobs yet.</li>';
+    if (selected) renderDetail(jobs.find(j => j.id === selected) || await api('/api/jobs/' + selected));
+  } catch (e) { $('#stats').textContent = 'Server unreachable: ' + e.message; }
+}
+
+function renderDetail(j) {
+  const d = $('#detail');
+  if (!d.querySelector('pre')) {
+    d.innerHTML = `<h2></h2><div id="jobtext"></div><div class="meta" id="info"></div>
+      <div class="actions"></div><div id="files"></div><pre id="log"></pre>`;
+  }
+  const c = $('#jobtext');
+  if (j.kind === 'agent') { c.className = 'task'; c.textContent = j.command; }
+  else { c.className = 'cmd'; c.textContent = '$ ' + j.command; }
+  if (j.kind === 'agent') loadFiles(j.id); else $('#files').innerHTML = '';
+  d.querySelector('h2').innerHTML = `#${j.id} ${esc(j.name)} ${badge(j.status)}`;
+  $('#info').textContent = [
+    j.cwd && 'cwd: ' + j.cwd, j.timeout && 'timeout: ' + j.timeout + 's',
+    'attempts: ' + j.attempts, j.exit_code != null && 'exit: ' + j.exit_code, dur(j), j.error,
+  ].filter(Boolean).join(' · ');
+  const active = j.status === 'queued' || j.status === 'running';
+  d.querySelector('.actions').innerHTML = active
+    ? `<button data-act="cancel">Cancel</button>`
+    : `<button data-act="retry">Retry</button><button data-act="delete">Delete</button>`;
+}
+
+async function loadFiles(id) {
+  try {
+    const r = await api(`/api/jobs/${id}/files`);
+    if (id !== selected) return;
+    const sig = JSON.stringify(r.files);
+    if (sig === filesSig) return;
+    filesSig = sig;
+    $('#files').innerHTML = `<strong>Workspace files</strong> <span class="path">${esc(r.workspace)}</span>` +
+      (r.files.length ? '<ul>' + r.files.map(f => `<li><a href="/api/jobs/${id}/files/${f.path.split('/').map(encodeURIComponent).join('/')}"
+        target="_blank">${esc(f.path)}</a><span class="meta">${f.size.toLocaleString()} B</span></li>`).join('') + '</ul>'
+        : ' <span class="meta">· none yet</span>');
+  } catch {}
+}
+
+async function pollLog() {
+  if (!selected) return;
+  const id = selected;
+  try {
+    const r = await api(`/api/jobs/${id}/logs?offset=${logOffset}`);
+    if (id !== selected) return;
+    const pre = $('#log');
+    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 30;
+    pre.textContent += r.text;
+    logOffset = r.next_offset;
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
+  } catch {}
+}
+
+async function select(id) {
+  selected = id; logOffset = 0; filesSig = '';
+  $('#detail').innerHTML = '';
+  clearInterval(logTimer);
+  await refresh();
+  await pollLog();
+  logTimer = setInterval(pollLog, 1000);
+}
+
+$('#jobs').addEventListener('click', e => {
+  const li = e.target.closest('li[data-id]');
+  if (li) select(+li.dataset.id);
+});
+$('#detail').addEventListener('click', async e => {
+  const act = e.target.dataset.act;
+  if (!act) return;
+  try {
+    if (act === 'delete') {
+      if (!confirm('Delete this job and its log?')) return;
+      await api(`/api/jobs/${selected}`, { method: 'DELETE' });
+      selected = null; clearInterval(logTimer);
+      $('#detail').innerHTML = '<div class="empty">Select a job to see its output.</div>';
+    } else {
+      await api(`/api/jobs/${selected}/${act}`, { method: 'POST' });
+      if (act === 'retry') { logOffset = 0; $('#log').textContent = ''; }
+    }
+    refresh();
+  } catch (err) { alert(err.message); }
+});
+$('#new').addEventListener('submit', async e => {
+  e.preventDefault();
+  const text = $('#command').value.trim();
+  const body = kind === 'agent' ? { kind, task: text } : { kind, command: text };
+  if ($('#name').value.trim()) body.name = $('#name').value.trim();
+  if ($('#cwd').value.trim()) body.cwd = $('#cwd').value.trim();
+  if ($('#timeout').value) body.timeout = +$('#timeout').value;
+  try {
+    const j = await api('/api/jobs', { method: 'POST', body: JSON.stringify(body) });
+    e.target.reset(); setKind(kind);
+    select(j.id);
+  } catch (err) { alert(err.message); }
+});
+$('#filter').addEventListener('change', refresh);
+refresh();
+setInterval(refresh, 1500);
+</script>
+</body>
+</html>
