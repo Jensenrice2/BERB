@@ -124,7 +124,7 @@ class Runner:
         common = dict(cwd=job["cwd"] or None, stdout=out, stderr=asyncio.subprocess.STDOUT,
                       stdin=asyncio.subprocess.DEVNULL, **oscompat.new_group_kwargs())
         if oscompat.IS_WINDOWS:
-            return await asyncio.create_subprocess_exec(*oscompat.powershell_argv(job["command"]), **common)
+            return await asyncio.create_subprocess_exec(*oscompat.powershell_job_argv(job["command"]), **common)
         return await asyncio.create_subprocess_shell(job["command"], **common)
 
     def workspace_for(self, job: dict) -> Path:

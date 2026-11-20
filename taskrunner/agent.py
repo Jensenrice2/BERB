@@ -127,9 +127,8 @@ class PowerShellSession:
         cwd = str(self.cwd).replace("'", "''")
         script = (
             f"Set-Location -LiteralPath '{cwd}'\n"
-            f"{command}\n"
-            "$__trCode = if ($LASTEXITCODE) { $LASTEXITCODE } elseif ($?) { 0 } else { 1 }\n"
-            f"Write-Output ('{marker}' + (Get-Location).ProviderPath + '|' + $__trCode)\n"
+            + oscompat.powershell_wrap(command)
+            + f"[Console]::Out.Flush(); Write-Output ('{marker}' + (Get-Location).ProviderPath + '|' + $__trCode)\n"
         )
         proc = subprocess.Popen(
             oscompat.powershell_argv(script), cwd=self.workspace,

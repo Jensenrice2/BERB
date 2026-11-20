@@ -35,6 +35,13 @@ def test_success_and_logs(client):
     assert "hello" in text and "oops" in text
 
 
+@pytest.mark.skipif(not IS_WINDOWS, reason="PowerShell error formatting is Windows-only")
+def test_powershell_errors_are_readable(client):
+    j = wait(client, client.post("/api/jobs", json={"command": "Write-Error 'boom'"}).json()["id"])
+    text = client.get(f"/api/jobs/{j['id']}/logs").json()["text"]
+    assert j["status"] == "failed" and "ERROR: boom" in text and "CLIXML" not in text
+
+
 def test_failure(client):
     j = wait(client, client.post("/api/jobs", json={"command": "exit 3"}).json()["id"])
     assert j["status"] == "failed" and j["exit_code"] == 3

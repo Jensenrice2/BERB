@@ -153,8 +153,12 @@ def test_powershell_session(tmp_path, monkeypatch):
     ps.run("New-Item -ItemType Directory sub | Out-Null; Set-Location sub")
     assert ps.run("(Get-Location).ProviderPath").strip() == str(tmp_path / "sub")  # cwd persists
     assert "[exit code 3]" in ps.run("exit 3")
-    out = ps.run("Write-Error 'boom'")  # errors are captured, not lost
-    assert "boom" in out and "[exit code 1]" in out
+    out = ps.run("Write-Output before; Write-Error 'boom'; Write-Output after")  # errors are readable text
+    assert "before" in out and "ERROR: boom" in out and "after" in out and "[exit code 1]" in out
+    assert "CLIXML" not in out and "\x1b" not in out
+    out = ps.run("throw 'fatal'")  # terminating errors too
+    assert "ERROR: fatal" in out and "[exit code 1]" in out and "CLIXML" not in out
+    assert "WARNING: careful" in ps.run("Write-Warning careful")
     py = f"& '{sys.executable}' -c \"import sys; sys.exit(5)\""
     assert "[exit code 5]" in ps.run(py)  # native program exit codes
     ps.close()
