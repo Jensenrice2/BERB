@@ -30,6 +30,28 @@ Then open http://127.0.0.1:8765. The server runs while that window stays open.
 
 On Windows, shell jobs run in **PowerShell** (PowerShell 7 if installed, otherwise the Windows PowerShell built into Windows), and AI agents get a PowerShell tool. On macOS/Linux both use **bash**.
 
+## Working on it in VS Code
+
+1. **File → Open Folder…** and choose the `taskrunner` folder. Install the **Python** extension if VS Code suggests it.
+2. **Terminal → Run Task… → Set up (first time).** This creates `.venv` and installs everything. If VS Code asks which Python environment to use, pick `.venv`.
+3. Optional, for AI agent tasks: copy `.env.example` to `.env` and put your Anthropic API key in it.
+4. Open **Run and Debug** (`Ctrl+Shift+D`, or `Cmd+Shift+D` on Mac), choose **Task Runner: start server**, and press **F5**. Then open http://127.0.0.1:8765.
+
+You can set breakpoints anywhere in `taskrunner/`. Tests are under the **Testing** (flask) icon, or **Terminal → Run Task… → Run tests**.
+
+Where things live:
+
+| File | What it does |
+|---|---|
+| `taskrunner/app.py` | Web server and API |
+| `taskrunner/runner.py` | Runs jobs in the background (queue, workers, cancel, timeouts) |
+| `taskrunner/store.py` | Saves jobs in a SQLite database |
+| `taskrunner/agent.py` | The AI agent (Claude, with shell and file tools) |
+| `taskrunner/oscompat.py` | Windows vs macOS/Linux differences |
+| `taskrunner/cli.py` | Command-line client |
+| `taskrunner/static/index.html` | The dashboard (HTML/CSS/JS in one file) |
+| `tests/` | Automated tests |
+
 ## Install it as a desktop app (macOS / Windows)
 
 With the server running, open http://127.0.0.1:8765 and:

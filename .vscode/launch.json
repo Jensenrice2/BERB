@@ -1,0 +1,25 @@
+{
+  // Run and Debug panel (Ctrl+Shift+D / Cmd+Shift+D) > pick one > press F5
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Task Runner: start server",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "taskrunner.cli",
+      "args": ["serve"],
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Task Runner: run tests",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-v", "tests"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ]
+}
