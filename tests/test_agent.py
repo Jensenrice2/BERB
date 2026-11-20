@@ -108,7 +108,7 @@ def test_agent_uses_tools_and_finishes(tmp_path, shell):
 
     req = client.requests[0]
     assert req["model"] == "claude-opus-5-5"
-    assert {t["name"] for t in req["tools"]} == {sh, "str_replace_based_edit_tool"}
+    assert {sh, "str_replace_based_edit_tool", "open_in_browser"} <= {t["name"] for t in req["tools"]}
     assert str(tmp_path) in req["system"]
     assert ("PowerShell" if shell == "powershell" else "bash") in req["system"]
     assert "Done: wrote" in log.getvalue() and f"▶ {shell}" in log.getvalue()
@@ -194,3 +194,59 @@ def test_agent_job_via_api_without_credentials(tmp_path, monkeypatch):
         assert c.get(f"/api/jobs/{j['id']}/files").json()["files"][0]["path"] == "r.txt"
         assert c.get(f"/api/jobs/{j['id']}/files/r.txt").text == "hi"
         assert c.get(f"/api/jobs/{j['id']}/files/..%2F..%2Fjobs.db").status_code == 404
+
+
+# ---------------------------------------------------------------- web + tabs
+
+from taskrunner.agent import TabOpener
+
+
+def test_open_in_browser_tool(tmp_path):
+    opened = []
+    tabs = TabOpener(limit=2, opener=lambda url: opened.append(url) or True)
+    client = FakeClient([
+        NS(stop_reason="tool_use", content=[
+            tool_use("a", "open_in_browser", url="https://example.com/one"),
+            tool_use("b", "open_in_browser", url="file:///etc/passwd"),          # not a web page
+            tool_use("c", "open_in_browser", url="javascript:alert(1)"),         # not a web page
+            tool_use("d", "open_in_browser", url="http://example.com/two"),
+            tool_use("e", "open_in_browser", url="https://example.com/three"),   # over the limit
+        ]),
+        NS(stop_reason="end_turn", content=[text("opened what I could")]),
+    ])
+    log = io.StringIO()
+    assert run_agent("open links", tmp_path, client=client, out=log, tabs=tabs, web=False) == 0
+    assert opened == ["https://example.com/one", "http://example.com/two"]
+    res = {r["tool_use_id"]: r for r in client.requests[1]["messages"][-1]["content"]}
+    assert not res["a"].get("is_error") and not res["d"].get("is_error")
+    assert res["b"]["is_error"] and res["c"]["is_error"] and "http" in res["b"]["content"]
+    assert res["e"]["is_error"] and "tab limit" in res["e"]["content"]
+    assert "🗂 open tab: https://example.com/one" in log.getvalue()
+
+
+def test_web_tools_offered_and_logged(tmp_path):
+    client = FakeClient([
+        NS(stop_reason="end_turn", content=[
+            NS(type="server_tool_use", id="s1", name="web_search", input={"query": "best hiking boots"}),
+            NS(type="web_search_tool_result", tool_use_id="s1", content=[]),
+            NS(type="server_tool_use", id="s2", name="web_fetch", input={"url": "https://example.com/boots"}),
+            NS(type="web_fetch_tool_result", tool_use_id="s2",
+               content=NS(type="web_fetch_tool_error", error_code="url_not_accessible")),
+            text("Here is what I found."),
+        ]),
+    ])
+    log = io.StringIO()
+    assert run_agent("research boots", tmp_path, client=client, out=log, web=True) == 0
+    types = {t.get("type") for t in client.requests[0]["tools"]}
+    assert {"web_search_20260209", "web_fetch_20260209"} <= types
+    assert "web_fetch" in client.requests[0]["system"]
+    out = log.getvalue()
+    assert "🌐 web_search: best hiking boots" in out and "🌐 web_fetch: https://example.com/boots" in out
+    assert "could not fetch page (url_not_accessible)" in out
+
+
+def test_web_tools_can_be_turned_off(tmp_path):
+    client = FakeClient([NS(stop_reason="end_turn", content=[text("ok")])])
+    run_agent("x", tmp_path, client=client, out=io.StringIO(), web=False)
+    names = {t["name"] for t in client.requests[0]["tools"]}
+    assert "web_search" not in names and "web_fetch" not in names and "open_in_browser" in names

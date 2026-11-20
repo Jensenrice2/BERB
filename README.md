@@ -133,6 +133,8 @@ Interactive docs: `/docs`.
 Each agent job runs `taskrunner/agent.py` as its own subprocess. Cancel, timeout, retry and live logs all work the same way as for shell jobs.
 
 - **Tools:** Claude gets a shell (a persistent bash session on macOS/Linux; PowerShell on Windows, where the current folder carries over between commands but variables don't) and a file editor. It works in `data/agent/<id>/workspace`, or in the working directory you give it.
+- **The web:** the agent can search the web, read pages and follow their links. These tools run on Anthropic's side, and web searches are billed per search on top of tokens. Turn them off with `TASKRUNNER_AGENT_WEB=0`.
+- **Opening tabs:** when a task asks for it ("open the top 5 results"), the agent opens pages as new tabs in your default browser. Only http/https links, at most 15 per task (`TASKRUNNER_AGENT_MAX_TABS`).
 - **Limits:** a run stops after 60 model turns, and each bash command stops after 5 minutes. Set a job timeout to cap wall-clock time.
 - **Log:** shows Claude's reasoning summaries, its messages, every command it runs, and a final report.
 - **Model settings:** adaptive thinking, prompt caching for the growing conversation, and server-side refusal fallback (`fallbacks: "default"`).

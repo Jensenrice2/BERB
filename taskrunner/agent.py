@@ -18,6 +18,8 @@ import subprocess
 import sys
 import time
 import uuid
+import webbrowser
+from urllib.parse import urlparse
 from pathlib import Path
 
 import anthropic
@@ -46,6 +48,34 @@ POWERSHELL_TOOL = {  # Windows has no bash, so the agent gets a PowerShell tool 
     "strict": True,
     "eager_input_streaming": True,  # stream long commands as they're written; we validate below
 }
+# Reading the web: Anthropic-hosted tools, run on Anthropic's side (no setup). The agent can search,
+# read pages and follow links it finds. Turn off with TASKRUNNER_AGENT_WEB=0.
+WEB_TOOLS = [
+    {"type": "web_search_20260209", "name": "web_search", "max_uses": 20},
+    {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 40},
+]
+WEB_ENABLED = os.environ.get("TASKRUNNER_AGENT_WEB", "1") != "0"
+
+# Opening tabs: runs here, in the user's own default browser.
+MAX_TABS = int(os.environ.get("TASKRUNNER_AGENT_MAX_TABS", "15"))  # per task, so a task can't flood the screen
+OPEN_TAB_TOOL = {
+    "name": "open_in_browser",
+    "description": (
+        "Open a web page as a new tab in the user's own web browser on this computer, so they can "
+        "see it. Use this only when the task asks you to open, show or bring up pages for the user; "
+        "to read a page yourself use web_fetch instead. Only http and https links. "
+        f"At most {MAX_TABS} tabs per task."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {"url": {"type": "string", "description": "Full http(s) URL to open"}},
+        "required": ["url"],
+        "additionalProperties": False,
+    },
+    "strict": True,
+    "eager_input_streaming": True,
+}
+
 CMD_TIMEOUT = 300  # seconds per shell command
 MAX_OUTPUT = 30_000  # chars of tool output sent back to the model
 
@@ -53,7 +83,7 @@ SYSTEM = """You are a background worker agent. A user assigned you a task and is
 live, so work autonomously: don't ask questions, make reasonable assumptions and state them.
 
 Your workspace directory is {workspace}. It is your current directory; keep all files you \
-create inside it. This machine runs {os_name}. You have a {shell} shell tool and a file editor.
+create inside it. This machine runs {os_name}. You have a {shell} shell tool and a file editor.{web}
 
 When the task is complete, end with a short report: what you did, where the results are \
 (file paths), and anything that failed or still needs a human."""
@@ -219,8 +249,30 @@ def _show(s: str, n: int = 2000) -> str:
 
 # ---------------------------------------------------------------- loop
 
+class TabOpener:
+    """open_in_browser: new tabs in the user's default browser, http(s) only, capped per task."""
+
+    def __init__(self, limit: int = MAX_TABS, opener=webbrowser.open_new_tab):
+        self.limit, self.opener, self.opened = limit, opener, []
+
+    def run(self, url) -> str:
+        if not isinstance(url, str) or not url.strip():
+            raise ValueError("missing 'url' (the input may have been cut off); try again")
+        url = url.strip()
+        parts = urlparse(url)
+        if parts.scheme not in ("http", "https") or not parts.netloc:
+            raise ValueError(f"only full http:// or https:// links can be opened, not {url!r}")
+        if len(self.opened) >= self.limit:
+            raise ValueError(f"tab limit reached ({self.limit} per task); list any remaining links "
+                             "in your final report instead")
+        if not self.opener(url):
+            raise RuntimeError("no web browser could be opened on this computer")
+        self.opened.append(url)
+        return f"opened in the user's browser ({len(self.opened)}/{self.limit} tabs): {url}"
+
+
 def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=sys.stdout,
-              shell: str | None = None) -> int:
+              shell: str | None = None, web: bool | None = None, tabs: TabOpener | None = None) -> int:
     """Returns a process exit code: 0 done, 1 failed. shell: 'bash' or 'powershell' (default: by OS)."""
     def say(*a):
         print(*a, file=out, flush=True)
@@ -233,8 +285,13 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
     else:
         sh, shell_tool = BashSession(workspace), BASH_TOOL
         os_name = "macOS" if sys.platform == "darwin" else "Linux"
-    tools = [shell_tool, EDITOR_TOOL]
-    system = SYSTEM.format(workspace=workspace, os_name=os_name,
+    web = WEB_ENABLED if web is None else web
+    tabs = tabs or TabOpener()
+    tools = [shell_tool, EDITOR_TOOL, OPEN_TAB_TOOL] + (WEB_TOOLS if web else [])
+    web_note = (" You can search the web (web_search), read pages and follow their links (web_fetch), "
+                "and open pages as tabs in the user's browser (open_in_browser)." if web else
+                " You can open pages as tabs in the user's browser (open_in_browser).")
+    system = SYSTEM.format(workspace=workspace, os_name=os_name, web=web_note,
                            shell="PowerShell" if shell == "powershell" else "bash")
     editor = Editor(workspace)
     messages: list = [{"role": "user", "content": task}]
@@ -270,6 +327,12 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
             say()
 
             messages.append({"role": "assistant", "content": response.content})
+            for block in response.content:  # web tools run on Anthropic's side; just log them
+                if block.type == "server_tool_use":
+                    target = block.input.get("query") or block.input.get("url") or ""
+                    say(f"🌐 {block.name}: {target}")
+                elif block.type == "web_fetch_tool_result" and getattr(block.content, "type", "") == "web_fetch_tool_error":
+                    say(f"  ✖ could not fetch page ({getattr(block.content, 'error_code', 'error')})")
 
             if response.stop_reason == "refusal":
                 say("✖ The model declined this task.")
@@ -298,6 +361,9 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
                                 raise ValueError("missing 'command' (the input may have been cut off); try again")
                             say(f"▶ {shell}: {command}")
                             result = sh.run(command)
+                    elif block.name == "open_in_browser":
+                        say(f"🗂 open tab: {block.input.get('url')}")
+                        result = tabs.run(block.input.get("url"))
                     elif block.name == "str_replace_based_edit_tool":
                         say(f"▶ edit: {block.input.get('command')} {block.input.get('path')}")
                         result = editor.run(block.input)
@@ -322,6 +388,9 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
         return 1
     except anthropic.APIStatusError as e:
         say(f"✖ API error {e.status_code}: {e.message}")
+        if web and e.status_code == 400 and "web_" in str(e.message):
+            say("  Web search/fetch may be turned off for your Anthropic organization. Turn it on in the "
+                "Claude Console (Settings → Privacy), or set TASKRUNNER_AGENT_WEB=0 to run agents without it.")
         return 1
     except anthropic.APIConnectionError as e:
         say(f"✖ Could not reach the Anthropic API: {e}")
