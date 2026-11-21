@@ -58,8 +58,8 @@ def powershell_job_argv(command: str) -> list[str]:
 
 def new_group_kwargs() -> dict:
     """Popen kwargs that put the child in its own process group, so we can stop its whole tree."""
-    if IS_WINDOWS:
-        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    if IS_WINDOWS:  # own group, and no console window popping up (B.E.R.B may run without one)
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
     return {"start_new_session": True}
 
 
@@ -67,8 +67,8 @@ def kill_tree(pid: int, force: bool = False) -> None:
     """Stop a process and everything it started. On macOS/Linux, force=False asks politely (SIGTERM)."""
     if IS_WINDOWS:
         # Windows has no polite signal for console programs, so always force; /T takes the children too.
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
         return
     try:
         os.killpg(pid, signal.SIGKILL if force else signal.SIGTERM)

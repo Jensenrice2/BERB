@@ -1,6 +1,8 @@
 """Command-line client:  python -m taskrunner.cli <command> ...
 
-  serve                         start the server + dashboard
+  open                          start B.E.R.B if needed and open it in its own window
+  shortcuts                     (Windows) put B.E.R.B icons on the Desktop and Start menu
+  serve [--background]          start the server + dashboard
   add "<shell cmd>" [--name N] [--cwd DIR] [--timeout SEC]
   agent "<task in plain English>" [--name N] [--cwd DIR] [--timeout SEC]
   files <id>                    list files an agent job produced
@@ -18,6 +20,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 # The app's address: http://berb.localhost (any name ending in ".localhost" means "this computer"
 # to Edge, Chrome and Firefox). It uses the standard web port 80 when it's free, so no ":8765".
@@ -110,6 +113,9 @@ def main(argv=None):
     s = sub.add_parser("serve"); s.add_argument("--host", default="127.0.0.1"); s.add_argument("--port", type=int, default=None,
                                                                                     help="default: 80 if free, else 8765")
     s.add_argument("--open", action="store_true", help="open the dashboard in your browser once it's ready")
+    s.add_argument("--background", action="store_true", help="no console: write messages to data/server.log")
+    o = sub.add_parser("open"); o.add_argument("--no-window", action="store_true", help="just make sure it's running")
+    sub.add_parser("shortcuts")
     a = sub.add_parser("add"); a.add_argument("command"); a.add_argument("--name"); a.add_argument("--cwd"); a.add_argument("--timeout", type=float)
     ag = sub.add_parser("agent"); ag.add_argument("task"); ag.add_argument("--name"); ag.add_argument("--cwd"); ag.add_argument("--timeout", type=float)
     sub.add_parser("files").add_argument("id", type=int)
@@ -118,17 +124,39 @@ def main(argv=None):
         sub.add_parser(name).add_argument("id", type=int)
     g = sub.add_parser("logs"); g.add_argument("id", type=int); g.add_argument("-f", "--follow", action="store_true")
     args = p.parse_args(argv)
+    from . import launcher
+    launcher.load_dotenv()  # your API key from .env, however B.E.R.B was started
 
-    if args.cmd == "serve":
+    if args.cmd == "open":
+        port = launcher.open_app(PORTS, pretty_url, window=not args.no_window)
+        print(f"B.E.R.B is running at {pretty_url(port)}")
+    elif args.cmd == "shortcuts":
+        for lnk in launcher.create_shortcuts():
+            print(f"made {lnk}")
+    elif args.cmd == "serve":
+        if launcher.running_port(PORTS) and not args.port:
+            # Already running (e.g. started from the icon): just show it rather than start a second copy.
+            if args.open:
+                launcher.open_window(pretty_url(launcher.running_port(PORTS)))
+            print("B.E.R.B is already running.")
+            return
+        if args.background or sys.stdout is None:  # pythonw has no console to print to
+            log = Path(os.environ.get("TASKRUNNER_DATA", launcher.APP_DIR / "data")) / "server.log"
+            log.parent.mkdir(parents=True, exist_ok=True)
+            sys.stdout = sys.stderr = open(log, "a", encoding="utf-8", buffering=1)
         import uvicorn
+        from .app import app
         port = args.port or pick_port(args.host)
         url = pretty_url(port)
         if args.open:
             _open_when_ready(f"http://127.0.0.1:{port}", url)
-        print(f"B.E.R.B is running at {url}\n"
+        print(f"{time.ctime()}  B.E.R.B is running at {url}\n"
               f"  (also http://localhost{'' if port == 80 else f':{port}'})\n"
-              "  Keep this window open; close it or press Ctrl+C to stop.", flush=True)
-        uvicorn.run("taskrunner.app:app", host=args.host, port=port, log_level="warning")
+              + ("" if args.background else "  Keep this window open; close it or press Ctrl+C to stop.\n"),
+              flush=True)
+        server = uvicorn.Server(uvicorn.Config(app, host=args.host, port=port, log_level="warning"))
+        app.state.server = server  # lets the app's "Turn off" button stop it
+        server.run()
     elif args.cmd == "add":
         body = {k: v for k, v in vars(args).items() if k in ("command", "name", "cwd", "timeout") and v is not None}
         if "cwd" in body:

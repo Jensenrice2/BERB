@@ -4,15 +4,20 @@ Give it work, either as a shell command or as a task described in plain English 
 
 ![dashboard](dashboard.png)
 
-## Quick start on Windows (no typing)
+## Quick start
 
+**Windows**
 1. On https://github.com/Jensenrice2/BERB click the green **Code** button → **Download ZIP**.
-2. Open your Downloads folder, right-click the ZIP → **Extract All…** → **Extract**.
-3. In the extracted folder, double-click **start-windows.bat**.
-   - If Windows says *"Windows protected your PC"*, click **More info** → **Run anyway**.
-   - The first time, it installs what it needs (and Python, if you don't have it).
-4. Your browser opens Task Runner. Keep the black window open while you use it.
-5. To get it as an app with its own icon, click **Install app** at the top of the page (Edge or Chrome).
+2. In Downloads, right-click the ZIP → **Properties** → tick **Unblock** → **OK**. Then right-click → **Extract All…** → **Extract**.
+3. In the extracted folder, double-click **start-windows** once. It installs what it needs (and Python, if missing), puts a **B.E.R.B icon on your Desktop and in the Start menu**, and opens the app.
+4. From then on, just click the **B.E.R.B icon**. It opens in its own window, starting quietly in the background if needed. There's no console window to keep open. Use **Turn off** in the app to stop it.
+
+**Mac**
+1. Download and unzip the same way.
+2. Double-click **start-mac.command**. If macOS says it can't be opened, right-click it → **Open** → **Open**.
+3. Do the same whenever you want to open B.E.R.B.
+
+**Your API key:** copy `.env.example` to `.env` in the same folder and put your key in it. B.E.R.B reads it automatically however it's started.
 
 ## Setup
 
@@ -36,7 +41,7 @@ py -m venv .venv; .venv\Scripts\pip install -r requirements.txt
 
 (No git? Download the ZIP from the GitHub page with **Code → Download ZIP**, unzip it, and run the last two lines inside the folder.)
 
-Then open **http://berb.localhost** (or **http://localhost** on a Mac). The server runs while that window stays open.
+Then open **http://berb.localhost** (or **http://localhost** on a Mac). The server runs while that window stays open. (Started from the icon or `python -m taskrunner.cli open` instead, it runs in the background until you click **Turn off**.)
 
 The app uses the standard web port 80 when it's free, so the address has no port number. If something else on your computer already uses port 80, it moves to port 8765 instead (`http://berb.localhost:8765`); the window shows the exact address. Rename it by setting `TASKRUNNER_NAME`, e.g. `TASKRUNNER_NAME=tasks` gives `http://tasks.localhost`.
 

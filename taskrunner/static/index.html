@@ -148,6 +148,7 @@
   <h1><img src="/static/icons/logo-64.png" alt="">B.E.R.B</h1>
   <div id="stats" aria-live="polite"></div>
   <button id="install" class="btn" type="button">Install app</button>
+  <button id="quit" class="btn quiet" type="button" title="Stop B.E.R.B running in the background">Turn off</button>
 </header>
 <main>
   <div class="side">
@@ -279,7 +280,7 @@ async function refresh() {
     }
   } catch (e) {
     $('#stats').innerHTML = `<span class="chip bad">${e instanceof TypeError
-      ? 'B.E.R.B isn’t running. Start it (start-windows, or F5 in VS Code).' : esc(e.message)}</span>`;
+      ? 'B.E.R.B is off. Open it again from its icon.' : esc(e.message)}</span>`;
   }
 }
 
@@ -501,11 +502,23 @@ $('#new').addEventListener('submit', async e => {
     select(j.id);
   } catch (err) { alert(err.message); }
 });
+$('#quit').addEventListener('click', async () => {
+  const busy = (await api('/api/jobs').catch(() => [])).filter(j => j.status === 'running' || j.status === 'queued').length;
+  if (!confirm(busy ? `${busy} task${busy > 1 ? 's are' : ' is'} still going and will be stopped. Turn off B.E.R.B?`
+                    : 'Turn off B.E.R.B? You can open it again from its icon.')) return;
+  try {
+    await api('/api/quit', { method: 'POST' });
+    clearInterval(refreshTimer); clearInterval(feedTimer);
+    document.body.innerHTML = `<div class="welcome" style="margin-top:20vh">
+      <img src="/static/icons/icon-192.png" alt=""><h2>B.E.R.B is off</h2>
+      <p>Open it again any time from the B.E.R.B icon on your Desktop or Start menu.</p></div>`;
+  } catch (err) { alert(err.message); }
+});
 $('#command').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('#new').requestSubmit(); });
 $('#filter').addEventListener('change', () => { jobsSig = ''; refresh(); });
 showWelcome();
 refresh();
-setInterval(refresh, 2000);
+const refreshTimer = setInterval(refresh, 2000);
 
 // Installable app: register the service worker, and offer an Install button where the browser supports it.
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

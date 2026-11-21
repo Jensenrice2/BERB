@@ -107,3 +107,24 @@ def test_concurrent_requests_never_mix_up_jobs(tmp_path):
 
     with ThreadPoolExecutor(16) as pool:
         assert all(pool.map(check, range(64)))
+
+
+def test_other_websites_cannot_drive_the_app(tmp_path):
+    from taskrunner.app import is_local_host
+    for ok in ("berb.localhost", "berb.localhost:8765", "localhost", "127.0.0.1:80", "[::1]:8765"):
+        assert is_local_host(ok), ok
+    for bad in ("evil.example", "127.0.0.1.evil.example", "localhost.evil.example", "berb.localhost.evil.com:80", ""):
+        assert not is_local_host(bad), bad
+
+    with TestClient(create_app(tmp_path)) as c:
+        j = c.post("/api/jobs", json={"command": "sleep 30"}).json()
+        # DNS rebinding: a request addressed to some other site's name
+        assert c.get("/api/jobs", headers={"host": "attacker.example"}).status_code == 403
+        # a page on another site pressing buttons
+        for path in (f"/api/jobs/{j['id']}/cancel", f"/api/jobs/{j['id']}/retry"):
+            assert c.post(path, headers={"origin": "https://evil.example"}).status_code == 403
+        assert c.post(f"/api/jobs/{j['id']}/cancel", headers={"origin": "null"}).status_code == 403
+        assert c.delete(f"/api/jobs/{j['id']}", headers={"origin": "https://evil.example"}).status_code == 403
+        # the app's own page (same origin) and the command line (no origin) still work
+        assert c.get("/api/jobs", headers={"host": "berb.localhost"}).status_code == 200
+        assert c.post(f"/api/jobs/{j['id']}/cancel", headers={"origin": "http://berb.localhost"}).status_code == 200

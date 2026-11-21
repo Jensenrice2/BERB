@@ -1,9 +1,10 @@
 @echo off
-rem Double-click this file to start Task Runner on Windows.
-rem First time: it installs what the app needs (takes a minute or two).
+rem B.E.R.B for Windows: double-click this ONCE. It sets everything up, puts a B.E.R.B icon
+rem on your Desktop and Start menu, and opens the app. After that, just use the icon.
+rem (Double-click it again any time to repair or update the setup.)
 setlocal
 cd /d "%~dp0"
-title B.E.R.B
+title B.E.R.B setup
 
 rem --- find Python (the "py" launcher, or python on PATH; skip the Microsoft Store placeholder)
 set "PY="
@@ -11,32 +12,31 @@ py -3 --version >nul 2>nul && set "PY=py -3"
 if not defined PY python --version >nul 2>nul && set "PY=python"
 if not defined PY goto :nopython
 
-rem --- first run: create the app's private Python environment
 if exist ".venv\Scripts\python.exe" goto :install
 echo.
-echo  First-time setup: installing what Task Runner needs. This takes a minute or two...
+echo  Setting up B.E.R.B. The first time takes a minute or two...
 echo.
 %PY% -m venv .venv
 if errorlevel 1 goto :fail
 
 :install
-rem --- every run: install anything new the app needs (quick when nothing changed)
-echo  Checking that everything Task Runner needs is installed...
+echo  Checking that everything B.E.R.B needs is installed...
 ".venv\Scripts\python.exe" -m pip install --disable-pip-version-check -q -r requirements.txt
 if errorlevel 1 goto :fail
-
-rem --- optional: load the Anthropic API key (for AI agent tasks) from a file named .env
-if exist ".env" for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do set "%%A=%%B"
 if defined TASKRUNNER_SETUP_ONLY exit /b 0
 
+echo  Adding the B.E.R.B icon to your Desktop and Start menu...
+".venv\Scripts\python.exe" -m taskrunner.cli shortcuts >nul
+if errorlevel 1 echo  (Couldn't make the icons. You can still start B.E.R.B with this file.)
+
+echo  Opening B.E.R.B...
+".venv\Scripts\python.exe" -m taskrunner.cli open
+if errorlevel 1 goto :fail
 echo.
-echo  Starting B.E.R.B. Your browser will open in a moment.
-echo  KEEP THIS WINDOW OPEN while you use the app. Close it to stop the app.
-echo.
-".venv\Scripts\python.exe" -m taskrunner.cli serve --open
-echo.
-echo  Task Runner has stopped.
-pause
+echo  All set! From now on, open B.E.R.B from its icon on your Desktop or in the Start menu.
+echo  It runs quietly in the background; use "Turn off" in the app to stop it.
+echo  This window closes by itself.
+timeout /t 8 >nul
 exit /b 0
 
 :nopython
@@ -60,7 +60,7 @@ exit /b 0
 
 :fail
 echo.
-echo  Setup failed. Take a screenshot of this window and send it to Claude.
-echo  (Fix the problem, delete the ".venv" folder, and double-click start-windows.bat again.)
+echo  Something went wrong. Take a screenshot of this window and send it to Claude.
+echo  (Details may also be in the file data\server.log.)
 pause
 exit /b 1

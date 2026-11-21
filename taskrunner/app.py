@@ -6,7 +6,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import Request
+from fastapi.responses import FileResponse, JSONResponse
+from urllib.parse import urlparse
 from fastapi.staticfiles import StaticFiles
 from typing import Literal
 
@@ -17,7 +19,8 @@ from .activity import pending_question, read_events, write_answer
 from .runner import Runner
 from .store import Store
 
-DATA_DIR = Path(os.environ.get("TASKRUNNER_DATA", Path.cwd() / "data"))
+# Tasks live in the app's own folder (next to .env), wherever it was started from.
+DATA_DIR = Path(os.environ.get("TASKRUNNER_DATA", Path(__file__).resolve().parent.parent / "data"))
 CONCURRENCY = int(os.environ.get("TASKRUNNER_CONCURRENCY", "2"))
 STATIC = Path(__file__).parent / "static"
 
@@ -42,6 +45,17 @@ class JobIn(BaseModel):
         return (self.task if self.kind == "agent" else self.command).strip()
 
 
+def is_local_host(host: str) -> bool:
+    """True for addresses that can only mean this computer: localhost, 127.0.0.1, ::1, *.localhost."""
+    host = (host or "").strip().lower()
+    if host.startswith("["):  # [::1]:80
+        name = host[1:host.find("]")] if "]" in host else host
+    else:
+        name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+    return (name in ("localhost", "127.0.0.1", "::1", "testserver")  # testserver: the test client
+            or name.endswith(".localhost"))
+
+
 class AnswerIn(BaseModel):
     answer: str = Field(min_length=1, max_length=5000)
 
@@ -61,6 +75,21 @@ def create_app(data_dir: Path = DATA_DIR, concurrency: int = CONCURRENCY) -> Fas
         await runner.stop()
 
     app = FastAPI(title="Task Runner", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def only_this_computer(request: Request, call_next):
+        """Other websites must not be able to drive B.E.R.B through your browser.
+        - Host check: blocks "DNS rebinding", where a site makes the browser treat this app as part of it.
+        - Origin check: blocks pages on other sites from pressing buttons (stop, retry, delete, answer...)."""
+        if not is_local_host(request.headers.get("host", "")):
+            return JSONResponse({"detail": "B.E.R.B only answers to http://berb.localhost or http://localhost"}, 403)
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            origin = request.headers.get("origin")
+            if origin and origin != "null" and not is_local_host(urlparse(origin).netloc):
+                return JSONResponse({"detail": "requests from other websites aren't allowed"}, 403)
+            if origin == "null":
+                return JSONResponse({"detail": "requests from other websites aren't allowed"}, 403)
+        return await call_next(request)
     app.state.store, app.state.runner = store, runner
 
     def _job_or_404(job_id: int) -> dict:
@@ -87,6 +116,15 @@ def create_app(data_dir: Path = DATA_DIR, concurrency: int = CONCURRENCY) -> Fas
     @app.get("/favicon.ico", include_in_schema=False)
     def favicon():
         return FileResponse(STATIC / "icons" / "favicon-32.png", media_type="image/png")
+
+    @app.post("/api/quit")
+    async def quit_app():
+        """The dashboard's "Turn off" button. Running tasks are stopped."""
+        server = getattr(app.state, "server", None)
+        if server is None:
+            raise HTTPException(409, "B.E.R.B wasn't started in a way that can be turned off from here")
+        server.should_exit = True
+        return {"ok": True}
 
     @app.get("/api/status")
     def status():
