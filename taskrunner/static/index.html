@@ -134,6 +134,25 @@
   #log { margin: 8px 0 0; max-height: 50vh; overflow: auto; padding: 12px 14px; background: var(--soft); border-radius: 10px;
          font: 12.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; color: var(--muted); }
 
+  /* saved logins */
+  dialog#logins { border: 1px solid var(--line); border-radius: 16px; padding: 0; width: min(560px, calc(100vw - 32px));
+                  background: var(--panel); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  dialog#logins::backdrop { background: rgba(0,0,0,.35); }
+  .dlg { padding: 22px 24px; display: grid; gap: 16px; }
+  .dlg h2 { margin: 0; font-size: 18px; }
+  .dlg .note { margin: 0; color: var(--muted); font-size: 13.5px; }
+  .switch { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 12px; background: var(--soft); cursor: pointer; }
+  .switch input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--accent); flex: none; }
+  .switch b { display: block; }
+  .saved { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .saved li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); }
+  .saved .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .saved .who span { color: var(--muted); }
+  .saved.off { opacity: .55; }
+  .addlogin { display: grid; gap: 8px; padding: 0; }
+  .addlogin input { padding: 9px 11px; }
+  .warn { padding: 10px 12px; border-radius: 10px; background: var(--ask-soft); color: var(--ask); font-size: 13.5px; }
+
   .welcome { margin: auto; max-width: 540px; text-align: center; color: var(--muted); }
   .welcome img { width: 64px; height: 64px; border-radius: 16px; margin-bottom: 10px; }
   .welcome h2 { color: var(--text); margin: 0 0 6px; font-size: 20px; }
@@ -148,6 +167,7 @@
   <h1><img src="/static/icons/logo-64.png" alt="">B.E.R.B</h1>
   <div id="stats" aria-live="polite"></div>
   <button id="install" class="btn" type="button">Install app</button>
+  <button id="loginsBtn" class="btn quiet" type="button">🔑 Saved logins</button>
   <button id="quit" class="btn quiet" type="button" title="Stop B.E.R.B running in the background">Turn off</button>
 </header>
 <main>
@@ -186,6 +206,19 @@
   </div>
   <section class="card" id="detail"></section>
 </main>
+<dialog id="logins" aria-labelledby="loginsTitle">
+  <div class="dlg">
+    <h2 id="loginsTitle">Saved logins</h2>
+    <label class="switch"><input type="checkbox" id="remember">
+      <span><b>Remember passwords</b>
+        <span class="note">Let B.E.R.B sign in to websites for you. Passwords are kept in your computer's own
+        password store (Windows Credential Manager or the Mac Keychain). Claude never sees them, and each one is only
+        ever typed on its own website, and only on secure (https) pages.</span></span></label>
+    <div id="loginsWarn"></div>
+    <div id="loginsBody"></div>
+    <div class="row"><span></span><button class="btn" type="button" id="loginsClose">Done</button></div>
+  </div>
+</dialog>
 <script>
 const $ = s => document.querySelector(s);
 const STATUS = { queued: 'Waiting to start', running: 'Working', succeeded: 'Done', failed: "Didn't finish",
@@ -502,6 +535,52 @@ $('#new').addEventListener('submit', async e => {
     select(j.id);
   } catch (err) { alert(err.message); }
 });
+// ---------------------------------------------------------------- saved logins
+async function loadLogins() {
+  let r;
+  try { r = await api('/api/logins'); } catch (err) { $('#loginsBody').textContent = err.message; return; }
+  $('#remember').checked = r.enabled;
+  $('#loginsWarn').innerHTML = r.available ? '' :
+    '<div class="warn">This computer doesn\'t have a password store B.E.R.B can use, so passwords can\'t be saved here.</div>';
+  const list = r.logins.length ? `<ul class="saved ${r.enabled ? '' : 'off'}">${r.logins.map(l => `
+      <li><span class="who">${esc(l.site)} <span>· ${esc(l.username)}</span></span>
+        <button class="btn quiet danger" type="button" data-del-site="${esc(l.site)}" data-del-user="${esc(l.username)}">Delete</button></li>`).join('')}</ul>`
+    : '<p class="note">No saved logins yet.</p>';
+  const add = r.enabled && r.available ? `
+    <form class="addlogin" id="addLogin" autocomplete="off">
+      <p class="label" style="margin:0">Add a login</p>
+      <input id="lSite" placeholder="Website, e.g. amazon.com" required>
+      <input id="lUser" placeholder="Username or email" required autocomplete="off">
+      <input id="lPass" type="password" placeholder="Password" required autocomplete="new-password">
+      <div class="row"><span class="note">You can't see saved passwords again; to change one, save it again.</span>
+        <button class="btn primary" type="submit">Save login</button></div>
+    </form>` : (r.enabled ? '' : '<p class="note">Turned off: Claude won\'t use saved logins. Turn it on to add or use them.</p>');
+  $('#loginsBody').innerHTML = list + add;
+}
+$('#loginsBtn').addEventListener('click', () => { $('#logins').showModal(); loadLogins(); });
+$('#loginsClose').addEventListener('click', () => $('#logins').close());
+$('#remember').addEventListener('change', async e => {
+  try { await api('/api/logins/settings', { method: 'PUT', body: JSON.stringify({ enabled: e.target.checked }) }); }
+  catch (err) { alert(err.message); }
+  loadLogins();
+});
+$('#loginsBody').addEventListener('submit', async e => {
+  if (e.target.id !== 'addLogin') return;
+  e.preventDefault();
+  const body = { site: $('#lSite').value, username: $('#lUser').value, password: $('#lPass').value };
+  $('#lPass').value = '';  // don't keep the password on the page
+  try { await api('/api/logins', { method: 'POST', body: JSON.stringify(body) }); loadLogins(); }
+  catch (err) { alert(err.message); }
+});
+$('#loginsBody').addEventListener('click', async e => {
+  const b = e.target.closest('[data-del-site]'); if (!b) return;
+  if (!confirm(`Delete the saved login for ${b.dataset.delSite}?`)) return;
+  try {
+    await api(`/api/logins?site=${encodeURIComponent(b.dataset.delSite)}&username=${encodeURIComponent(b.dataset.delUser)}`, { method: 'DELETE' });
+    loadLogins();
+  } catch (err) { alert(err.message); }
+});
+
 $('#quit').addEventListener('click', async () => {
   const busy = (await api('/api/jobs').catch(() => [])).filter(j => j.status === 'running' || j.status === 'queued').length;
   if (!confirm(busy ? `${busy} task${busy > 1 ? 's are' : ' is'} still going and will be stopped. Turn off B.E.R.B?`

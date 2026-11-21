@@ -40,14 +40,17 @@ BROWSER_TOOL = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["open", "click", "type", "fill_form", "select", "check", "press", "scroll",
-                         "back", "read", "screenshot"],
+                "enum": ["open", "click", "type", "fill_form", "log_in", "select", "check", "press",
+                         "scroll", "back", "read", "screenshot"],
                 "description": (
                     "open: go to url. click: click element ref. type: replace the text in field ref "
                     "with text (submit=true presses Enter after). fill_form: fill many fields in one "
                     "go - fields=[{ref, value}]; text boxes get the value, dropdowns choose the option "
                     "with that text, checkboxes are ticked for yes/on/true and unticked for no/off/false, "
-                    "radio buttons are picked (value ignored). select: choose option text in dropdown "
+                    "radio buttons are picked (value ignored). log_in: on a sign-in page of a site the "
+                    "user saved a login for, B.E.R.B fills in their username and password itself (you "
+                    "never see the password) and submits; for two-step sign-ins use it again on the "
+                    "password page. select: choose option text in dropdown "
                     "ref. check: tick (text='on') or untick (text='off') checkbox ref. press: press a "
                     "key such as Enter, Tab or Escape. scroll: text='down' or 'up'. back: previous page. "
                     "read: page state again. screenshot: an image of the page."
@@ -148,6 +151,7 @@ _SNAPSHOT_JS = r"""
     el.setAttribute('data-tr-ref', String(ref));
     const tag = el.tagName.toLowerCase(), type = (el.getAttribute('type') || '').toLowerCase();
     const role = el.getAttribute('role');
+    if (type === 'password') el.setAttribute('data-tr-was-password', '');
     let kind = role || tag;
     if (tag === 'input') kind = type && type !== 'text' ? `input[${type}]` : 'input';
     if (tag === 'a') kind = 'link';
@@ -160,7 +164,8 @@ _SNAPSHOT_JS = r"""
       if (q && q !== item.label) item.question = short(q, 120);
     }
     if (['input', 'textarea'].includes(tag) && !['checkbox', 'radio', 'submit', 'button', 'reset', 'image'].includes(type))
-      item.value = type === 'password' ? (el.value ? '(filled)' : '') : short(el.value, 120);
+      item.value = el.hasAttribute('data-tr-secret') ? '(hidden)' :
+                   type === 'password' ? (el.value ? '(filled)' : '') : short(el.value, 120);
     if (el.isContentEditable) item.value = short(textOf(el), 120);
     if (tag === 'select') {
       item.value = short(el.selectedOptions[0] && el.selectedOptions[0].text);
@@ -184,10 +189,35 @@ _SNAPSHOT_JS = r"""
 }
 """
 
+# Finds the username and password boxes of a sign-in form (marks them for log_in).
+_LOGIN_FIELDS_JS = r"""
+() => {
+  const vis = el => { const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+                      return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && !el.disabled; };
+  document.querySelectorAll('[data-tr-login]').forEach(e => e.removeAttribute('data-tr-login'));
+  const pw = [...document.querySelectorAll('input[type=password], input[data-tr-was-password], input[data-tr-secret]')].find(vis);
+  const looksUser = el => /user|email|e-mail|login|account|identifier|phone/i.test(
+    [el.name, el.id, el.getAttribute('autocomplete'), el.getAttribute('aria-label'), el.getAttribute('placeholder'),
+     el.labels && el.labels[0] ? el.labels[0].innerText : ''].join(' '));
+  const textish = 'input[type=email]:not([data-tr-was-password]), input[type=text]:not([data-tr-was-password]), ' +
+                  'input[type=tel], input:not([type]):not([data-tr-was-password])';
+  let user = null;
+  const scope = pw ? (pw.form || pw.closest('form, [role=form], main, body')) : document;
+  const candidates = [...scope.querySelectorAll(textish)].filter(vis);
+  user = candidates.find(el => (el.getAttribute('autocomplete') || '').match(/username|email/)) ||
+         candidates.find(looksUser) ||
+         (pw ? candidates.filter(el => el.compareDocumentPosition(pw) & Node.DOCUMENT_POSITION_FOLLOWING).pop() : null);
+  if (user) user.setAttribute('data-tr-login', 'user');
+  if (pw) pw.setAttribute('data-tr-login', 'pw');
+  return { user: !!user, pw: !!pw };
+}
+"""
+
 # Is this field one we must never type into? (passwords, card numbers, security codes)
 _SENSITIVE_JS = r"""
 el => {
-  const type = (el.getAttribute('type') || '').toLowerCase();
+  const type = el.hasAttribute('data-tr-was-password') || el.hasAttribute('data-tr-secret') ? 'password'
+             : (el.getAttribute('type') || '').toLowerCase();
   const ac = (el.getAttribute('autocomplete') || '').toLowerCase();
   const id = [el.name, el.id, el.getAttribute('aria-label'), el.getAttribute('placeholder')].join(' ').toLowerCase();
   if (type === 'password' || ac.includes('password')) return 'password';
@@ -198,14 +228,17 @@ el => {
 
 
 class BrowserSession:
-    def __init__(self, profile_dir: Path, headless: bool = HEADLESS, executable_path: str | None = BROWSER_PATH):
+    def __init__(self, profile_dir: Path, headless: bool = HEADLESS, executable_path: str | None = BROWSER_PATH,
+                 vault=None):
         self.profile_dir = profile_dir
+        self.vault = vault  # saved logins (only used when the user turned "Remember passwords" on)
         self.headless = headless
         self.executable_path = executable_path
         self._pw = self._context = self.page = None
         self._seen: set = set()  # tabs already known, to spot new ones
         self.labels: dict[int, str] = {}  # element number -> label, for the activity feed
         self._ref_frames: dict = {}       # element number -> the frame it's in (forms inside iframes)
+        self._secrets: set[str] = set()   # saved passwords typed this session: never shown to the AI
         self.events: list[str] = []  # dialogs dismissed, new tabs, etc. - reported with the next result
 
     # ------------------------------------------------------------ lifecycle
@@ -311,6 +344,8 @@ class BrowserSession:
             el.fill(inp.get("text") or "", timeout=ACTION_TIMEOUT_MS)
             if inp.get("submit"):
                 el.press("Enter", timeout=ACTION_TIMEOUT_MS)
+        elif action == "log_in":
+            self.events.append(self._log_in())
         elif action == "fill_form":
             note = self._fill_form(inp.get("fields"))
             if note:
@@ -341,6 +376,43 @@ class BrowserSession:
                 {"type": "text", "text": self._describe(short=True)},
             ]
         return self._describe()
+
+    def _log_in(self) -> str:
+        """Sign in with a saved login. The password goes straight from the computer's password
+        store into the page; it is never returned to the AI or written to any log."""
+        from .vault import secure_page, site_of
+        for frame in self.page.frames:  # the page itself first, then any embedded sign-in frames
+            try:
+                found = frame.evaluate(_LOGIN_FIELDS_JS)
+            except Exception:
+                continue
+            if not (found["user"] or found["pw"]):
+                continue
+            site = site_of(frame.url)
+            if self.vault is None or not self.vault.enabled():
+                raise PermissionError("Remember passwords is turned off in B.E.R.B, so you can't sign in "
+                                      "for the user. Ask them to sign in themselves in your browser window.")
+            if not secure_page(frame.url):
+                raise PermissionError(f"{site} isn't a secure (https) page, so saved passwords aren't used here.")
+            saved = self.vault.for_url(frame.url)
+            if not saved:
+                raise LookupError(f"The user hasn't saved a login for {site}. Ask them to sign in themselves in "
+                                  "your browser window, or to save a login for this site in B.E.R.B.")
+            username, password = saved
+            user = frame.locator('[data-tr-login="user"]').first if found["user"] else None
+            pw = frame.locator('[data-tr-login="pw"]').first if found["pw"] else None
+            if user is not None:
+                user.fill(username, timeout=ACTION_TIMEOUT_MS)
+            if pw is not None:
+                self._secrets.add(password)
+                pw.evaluate("e => e.setAttribute('data-tr-secret', '')")  # stays hidden from the AI
+                pw.fill(password, timeout=ACTION_TIMEOUT_MS)
+            (pw or user).press("Enter", timeout=ACTION_TIMEOUT_MS)
+            what = "username and password" if user is not None and pw is not None else (
+                "password" if pw is not None else "username (this site asks for the password on the next page; "
+                "use log_in again there)")
+            return f"signed in to {site} with the user's saved login: filled the {what} and submitted"
+        raise LookupError("No sign-in boxes found on this page. Open the site's sign-in page first.")
 
     def _fill_form(self, fields) -> str:
         """Fill several fields; keeps going past problems and reports them all at the end."""
@@ -442,7 +514,19 @@ class BrowserSession:
                 frame_texts.append(snap["text"][:2500])
         return main, elements, frame_texts
 
+    def _redact(self, text: str) -> str:
+        """Some sites echo a submitted password back (e.g. in the address). Blank it out."""
+        from urllib.parse import quote, quote_plus
+        for secret in self._secrets:
+            for form in {secret, quote(secret, safe=""), quote_plus(secret)}:
+                if form:
+                    text = text.replace(form, "[hidden password]")
+        return text
+
     def _describe(self, short: bool = False) -> str:
+        return self._redact(self._describe_raw(short))
+
+    def _describe_raw(self, short: bool = False) -> str:
         snap, elements, frame_texts = self._snapshot_frames()
         lines = [f"Title: {snap['title']}", f"URL: {snap['url']}"]
         if self.events:

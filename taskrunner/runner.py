@@ -141,6 +141,7 @@ class Runner:
         pkg_root = str(Path(__file__).resolve().parent.parent)
         env = {**os.environ, "PYTHONIOENCODING": "utf-8",
                "TASKRUNNER_BROWSER_PROFILE": str(self.agent_dir.parent / "browser-profile"),
+               "TASKRUNNER_VAULT_DIR": str(self.agent_dir.parent),  # saved logins (if turned on)
                "PYTHONPATH": pkg_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
         return await asyncio.create_subprocess_exec(
             sys.executable, "-u", "-m", "taskrunner.agent",

@@ -27,6 +27,7 @@ import anthropic
 from . import oscompat
 from .activity import ASK_TOOL, Asker, Events, describe_step
 from .browser import BROWSER_TOOL, BrowserSession
+from .vault import Vault
 
 MODEL = os.environ.get("TASKRUNNER_AGENT_MODEL", "claude-opus-5-5")
 EFFORT = os.environ.get("TASKRUNNER_AGENT_EFFORT", "high")
@@ -72,9 +73,11 @@ messages, emails or comments; never delete anything or change account settings -
 user's task explicitly asks for that exact action. If you reach such a step without that, stop \
 before the final button and, if you have ask_user, ask whether to go ahead (say exactly what will \
 happen) and continue only on a clear yes; otherwise report what is filled in and ready to submit.
-- You cannot type passwords or payment-card details (the tool blocks it). If a site needs a \
-login, ask the user (ask_user, if you have it) to log in themselves in your browser window and \
-tell you when they're done; it remembers logins for later tasks.
+- You cannot type passwords or payment-card details (the tool blocks it). If a site needs you to \
+sign in and it's one of the user's saved logins (listed below, if any), use the browser's log_in \
+action - B.E.R.B fills in the password itself. Otherwise ask the user (ask_user, if you have it) to \
+sign in themselves in your browser window and tell you when they're done; it remembers sign-ins \
+for later tasks.
 - Filling in forms: read each field's label or question (and any instructions on the page), then \
 fill it from the user's task and what you've found - several fields at once with fill_form. Never \
 make up personal details (names, emails, phone numbers, addresses, birthdays, ID numbers...): if a \
@@ -320,8 +323,10 @@ class Toolbox:
             self.os_name = "macOS" if sys.platform == "darwin" else "Linux"
         self.tabs = tabs or TabOpener()
         if browser is None or browser is True:
+            vault = Vault(Path(os.environ["TASKRUNNER_VAULT_DIR"])) if os.environ.get("TASKRUNNER_VAULT_DIR") else None
             browser = BrowserSession(Path(os.environ.get("TASKRUNNER_BROWSER_PROFILE")
-                                          or workspace / ".browser-profile")) if (BROWSER_ENABLED or browser) else None
+                                          or workspace / ".browser-profile"),
+                                     vault=vault) if (BROWSER_ENABLED or browser) else None
         elif browser is False:
             browser = None
         self.browser = browser
@@ -336,7 +341,15 @@ class Toolbox:
         system = SYSTEM.format(workspace=workspace, os_name=self.os_name, web=note,
                                ask=ASK_NOTE if self.asker else "",
                                shell="PowerShell" if self.shell == "powershell" else "bash")
-        return system + (BROWSER_RULES if self.browser else "")
+        if not self.browser:
+            return system
+        system += BROWSER_RULES
+        vault = getattr(self.browser, "vault", None)
+        sites = vault.sites() if vault else []
+        if sites:
+            system += ("\n- The user has saved logins for: " + ", ".join(sites)
+                       + ". On those sites, sign in with log_in.")
+        return system
 
     def run(self, name: str, inp: dict):
         """Run one tool call and log it. Returns text, or a list of content blocks (screenshot).

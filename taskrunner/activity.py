@@ -101,6 +101,7 @@ def describe_step(name: str, inp: dict, labels: dict | None = None, shell: str =
             "click": f"Clicked {label}",
             "type": f"Typed into {label}",
             "fill_form": _filled(inp.get("fields"), labels),
+            "log_in": "Signed in with your saved login",
             "select": f"Chose “{inp.get('text', '')}” in {label}",
             "check": f"{'Unticked' if str(inp.get('text', 'on')).lower() in ('off', 'false', 'no') else 'Ticked'} {label}",
             "press": f"Pressed {inp.get('text') or 'Enter'}",

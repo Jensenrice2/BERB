@@ -18,6 +18,7 @@ from . import oscompat
 from .activity import pending_question, read_events, write_answer
 from .runner import Runner
 from .store import Store
+from .vault import Vault, VaultUnavailable
 
 # Tasks live in the app's own folder (next to .env), wherever it was started from.
 DATA_DIR = Path(os.environ.get("TASKRUNNER_DATA", Path(__file__).resolve().parent.parent / "data"))
@@ -56,11 +57,21 @@ def is_local_host(host: str) -> bool:
             or name.endswith(".localhost"))
 
 
+class LoginIn(BaseModel):
+    site: str = Field(min_length=1, max_length=300)
+    username: str = Field(min_length=1, max_length=300)
+    password: str = Field(min_length=1, max_length=1000)
+
+
+class SettingIn(BaseModel):
+    enabled: bool
+
+
 class AnswerIn(BaseModel):
     answer: str = Field(min_length=1, max_length=5000)
 
 
-def create_app(data_dir: Path = DATA_DIR, concurrency: int = CONCURRENCY) -> FastAPI:
+def create_app(data_dir: Path = DATA_DIR, concurrency: int = CONCURRENCY, vault: Vault | None = None) -> FastAPI:
     store = Store(data_dir / "jobs.db")
     runner = Runner(store, data_dir / "logs", concurrency)
 
@@ -116,6 +127,35 @@ def create_app(data_dir: Path = DATA_DIR, concurrency: int = CONCURRENCY) -> Fas
     @app.get("/favicon.ico", include_in_schema=False)
     def favicon():
         return FileResponse(STATIC / "icons" / "favicon-32.png", media_type="image/png")
+
+    vault = vault or Vault(data_dir)
+    app.state.vault = vault
+
+    @app.get("/api/logins")
+    def list_logins():
+        """Saved logins - sites and usernames only, never passwords."""
+        return {"enabled": vault.enabled(), "available": vault.available(), "logins": vault.logins()}
+
+    @app.put("/api/logins/settings")
+    def set_remember(body: SettingIn):
+        vault.set_enabled(body.enabled)
+        return {"enabled": vault.enabled()}
+
+    @app.post("/api/logins", status_code=201)
+    def save_login(body: LoginIn):
+        if not vault.enabled():
+            raise HTTPException(409, "turn on Remember passwords first")
+        try:
+            return vault.save(body.site, body.username, body.password)
+        except VaultUnavailable as e:
+            raise HTTPException(503, f"Can't save passwords: {e}")
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    @app.delete("/api/logins", status_code=204)
+    def delete_login(site: str, username: str):
+        if not vault.delete(site, username):
+            raise HTTPException(404, "no such saved login")
 
     @app.post("/api/quit")
     async def quit_app():
