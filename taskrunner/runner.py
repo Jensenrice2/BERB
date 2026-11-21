@@ -143,6 +143,8 @@ class Runner:
         return await asyncio.create_subprocess_exec(
             sys.executable, "-u", "-m", "taskrunner.agent",
             "--workspace", str(workspace), "--task-file", str(task_file),
+            "--provider", job.get("provider") or "claude",
+            *(["--model", job["model"]] if job.get("model") else []),
             cwd=workspace, env=env, stdout=out, stderr=asyncio.subprocess.STDOUT,
             stdin=asyncio.subprocess.DEVNULL, **oscompat.new_group_kwargs(),
         )

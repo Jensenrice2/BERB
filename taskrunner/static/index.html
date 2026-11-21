@@ -69,6 +69,9 @@
   .seg button.on { background: var(--accent); color: #fff; }
   .hint { color: var(--muted); font-size: 12px; margin: -2px 0 0; }
   .kind { font-size: 13px; }
+  .model { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .model[hidden] { display: none; }
+  .model input { flex: 1; min-width: 0; }
   #files { margin: 0 0 10px; font-size: 13px; }
   #files a { color: var(--accent); text-decoration: none; }
   #files li { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
@@ -86,12 +89,16 @@
 <main>
   <section class="panel">
     <form id="new">
-      <div class="seg" role="tablist">
-        <button type="button" data-kind="agent" class="on">🤖 AI agent</button>
-        <button type="button" data-kind="shell" id="shellTab">$ Shell command</button>
+      <div class="seg" role="tablist" aria-label="Which AI does the work">
+        <button type="button" data-provider="claude" class="on">🤖 Claude</button>
+        <button type="button" data-provider="openai">🤖 OpenAI</button>
       </div>
-      <textarea id="command" required></textarea>
+      <textarea id="command" rows="4" required
+        placeholder="Describe the work in plain English, e.g.&#10;Download the CSV at &lt;url&gt;, clean it up, and write a summary report to report.md"></textarea>
       <p class="hint" id="hint"></p>
+      <label class="model" id="modelRow" hidden>OpenAI model
+        <input id="model" placeholder="gpt-4o" autocomplete="off" spellcheck="false">
+      </label>
       <div class="row">
         <input id="name" placeholder="Name (optional)">
         <input id="timeout" type="number" min="1" placeholder="Timeout sec (optional)">
@@ -112,26 +119,29 @@
 </main>
 <script>
 const $ = s => document.querySelector(s);
-let selected = null, logOffset = 0, logTimer = null, kind = 'agent', filesSig = '', shellName = 'bash';
-const PLACEHOLDER = {
-  agent: 'Describe the work in plain English, e.g.\nDownload the CSV at <url>, clean it up, and write a summary report to report.md',
-  shell: 'Command to run, e.g.  python train.py --epochs 5',
-  powershell: 'PowerShell command to run, e.g.  python train.py --epochs 5',
-};
+let selected = null, logOffset = 0, logTimer = null, filesSig = '';
+let provider = 'claude', openaiDefault = 'gpt-4o';
 const HINT = {
-  agent: 'Claude works on this in the background using a shell and file editor in its own workspace.',
-  shell: 'Runs exactly this command in the background.',
-  powershell: 'Runs exactly this command in PowerShell, in the background.',
+  claude: 'Claude works on this in the background: it can use a shell, edit files, search the web, and click and type in its own browser window.',
+  openai: 'An OpenAI model works on this in the background: it can use a shell, edit files, and click and type in its own browser window. Needs OPENAI_API_KEY in your .env file.',
 };
-function setKind(k) {
-  kind = k;
-  document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.dataset.kind === k));
-  const key = k === 'shell' && shellName === 'PowerShell' ? 'powershell' : k;
-  $('#command').placeholder = PLACEHOLDER[key]; $('#hint').textContent = HINT[key];
-  $('#command').rows = k === 'agent' ? 4 : 2;
+const store = {  // remembers the last choices on this computer; harmless if the browser blocks it
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+function setProvider(p) {
+  provider = p;
+  document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.dataset.provider === p));
+  $('#hint').textContent = HINT[p];
+  $('#modelRow').hidden = p !== 'openai';
+  store.set('provider', p);
 }
-document.querySelector('.seg').addEventListener('click', e => { if (e.target.dataset.kind) setKind(e.target.dataset.kind); });
-setKind('agent');
+document.querySelector('.seg').addEventListener('click', e => {
+  const b = e.target.closest('button[data-provider]'); if (b) setProvider(b.dataset.provider);
+});
+$('#model').value = store.get('openaiModel') || '';
+setProvider(store.get('provider') === 'openai' ? 'openai' : 'claude');
+const aiLabel = j => j.provider === 'openai' ? 'OpenAI ' + (j.model || openaiDefault) : 'Claude';
 
 async function api(path, opts = {}) {
   const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
@@ -149,16 +159,14 @@ const badge = s => `<span class="badge s-${s}">${s.replace('_', ' ')}</span>`;
 async function refresh() {
   try {
     const [jobs, st] = await Promise.all([api('/api/jobs?status=' + $('#filter').value), api('/api/status')]);
-    if (st.shell && st.shell !== shellName) {
-      shellName = st.shell;
-      $('#shellTab').textContent = shellName === 'PowerShell' ? '> PowerShell' : '$ Shell command';
-      setKind(kind);
+    if (st.openai_model && st.openai_model !== openaiDefault) {
+      openaiDefault = st.openai_model; $('#model').placeholder = openaiDefault;
     }
     $('#stats').textContent = `${st.running}/${st.concurrency} workers busy · ` +
       Object.entries(st.counts).map(([k, v]) => `${v} ${k.replace('_', ' ')}`).join(' · ');
     $('#jobs').innerHTML = jobs.length ? jobs.map(j => `
       <li data-id="${j.id}" class="${j.id === selected ? 'sel' : ''}">
-        ${badge(j.status)}<span class="name">${j.kind === 'agent' ? '<span class="kind" title="AI agent">🤖</span> ' : ''}#${j.id} ${esc(j.name)}</span><span class="meta">${dur(j)}</span>
+        ${badge(j.status)}<span class="name">${j.kind === 'agent' ? `<span class="kind" title="${esc(aiLabel(j))}">🤖</span> ` : ''}#${j.id} ${esc(j.name)}</span><span class="meta">${dur(j)}</span>
       </li>`).join('') : '<li class="empty">No jobs yet.</li>';
     if (selected) renderDetail(jobs.find(j => j.id === selected) || await api('/api/jobs/' + selected));
   } catch (e) {
@@ -180,6 +188,7 @@ function renderDetail(j) {
   if (j.kind === 'agent') loadFiles(j.id); else $('#files').innerHTML = '';
   d.querySelector('h2').innerHTML = `#${j.id} ${esc(j.name)} ${badge(j.status)}`;
   $('#info').textContent = [
+    j.kind === 'agent' && 'AI: ' + aiLabel(j),
     j.cwd && 'cwd: ' + j.cwd, j.timeout && 'timeout: ' + j.timeout + 's',
     'attempts: ' + j.attempts, j.exit_code != null && 'exit: ' + j.exit_code, dur(j), j.error,
   ].filter(Boolean).join(' · ');
@@ -249,13 +258,19 @@ $('#detail').addEventListener('click', async e => {
 $('#new').addEventListener('submit', async e => {
   e.preventDefault();
   const text = $('#command').value.trim();
-  const body = kind === 'agent' ? { kind, task: text } : { kind, command: text };
+  const body = { kind: 'agent', task: text, provider };
+  if (provider === 'openai') {
+    const m = $('#model').value.trim();
+    if (m) body.model = m;
+    store.set('openaiModel', m);
+  }
   if ($('#name').value.trim()) body.name = $('#name').value.trim();
   if ($('#cwd').value.trim()) body.cwd = $('#cwd').value.trim();
   if ($('#timeout').value) body.timeout = +$('#timeout').value;
   try {
     const j = await api('/api/jobs', { method: 'POST', body: JSON.stringify(body) });
-    e.target.reset(); setKind(kind);
+    const keepModel = $('#model').value;
+    e.target.reset(); $('#model').value = keepModel; setProvider(provider);
     select(j.id);
   } catch (err) { alert(err.message); }
 });

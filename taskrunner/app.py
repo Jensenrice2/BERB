@@ -25,6 +25,8 @@ class JobIn(BaseModel):
     kind: Literal["shell", "agent"] = "shell"
     command: str | None = Field(default=None, description="Shell command to run (kind=shell)")
     task: str | None = Field(default=None, description="Plain-English task for the AI agent (kind=agent)")
+    provider: Literal["claude", "openai"] = Field(default="claude", description="Which AI runs an agent job")
+    model: str | None = Field(default=None, max_length=100, description="OpenAI model name (provider=openai)")
     name: str | None = None
     cwd: str | None = None
     timeout: float | None = Field(default=None, gt=0, description="Seconds before the job is killed")
@@ -89,14 +91,17 @@ def create_app(data_dir: Path = DATA_DIR, concurrency: int = CONCURRENCY) -> Fas
         for j in store.list(limit=10_000):
             counts[j["status"]] = counts.get(j["status"], 0) + 1
         return {"concurrency": concurrency, "running": runner.running, "counts": counts,
-                "shell": oscompat.SHELL_NAME}
+                "shell": oscompat.SHELL_NAME,
+                "openai_model": os.environ.get("TASKRUNNER_OPENAI_MODEL", "gpt-4o")}
 
     @app.post("/api/jobs", status_code=201)
     async def create_job(body: JobIn):
         if body.cwd and not Path(body.cwd).is_dir():
             raise HTTPException(400, f"cwd does not exist: {body.cwd}")
         name = body.name or body.text.splitlines()[0][:60]
-        job = store.create(name, body.text, body.cwd, body.timeout, body.kind)
+        provider = body.provider if body.kind == "agent" else None
+        model = (body.model or "").strip() or None if provider == "openai" else None
+        job = store.create(name, body.text, body.cwd, body.timeout, body.kind, provider, model)
         runner.submit(job["id"])
         return job
 

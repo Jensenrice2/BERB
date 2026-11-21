@@ -290,41 +290,97 @@ class TabOpener:
         return f"opened in the user's browser ({len(self.opened)}/{self.limit} tabs): {url}"
 
 
+class Toolbox:
+    """The agent's tools (shell, file editor, tabs, browser) - shared by every AI provider."""
+
+    def __init__(self, workspace: Path, say, shell: str | None = None, tabs: TabOpener | None = None,
+                 browser: BrowserSession | bool | None = None):
+        self.say = say
+        self.shell = shell or ("powershell" if oscompat.IS_WINDOWS else "bash")
+        if self.shell == "powershell":
+            self.sh, self.shell_tool, self.os_name = PowerShellSession(workspace), POWERSHELL_TOOL, "Windows"
+        else:
+            self.sh, self.shell_tool = BashSession(workspace), BASH_TOOL
+            self.os_name = "macOS" if sys.platform == "darwin" else "Linux"
+        self.tabs = tabs or TabOpener()
+        if browser is None or browser is True:
+            browser = BrowserSession(Path(os.environ.get("TASKRUNNER_BROWSER_PROFILE")
+                                          or workspace / ".browser-profile")) if (BROWSER_ENABLED or browser) else None
+        elif browser is False:
+            browser = None
+        self.browser = browser
+        self.editor = Editor(workspace)
+
+    def system_prompt(self, workspace: Path, web: bool) -> str:
+        note = (" You can search the web (web_search), read pages and follow their links (web_fetch), "
+                "and open pages as tabs in the user's browser (open_in_browser)." if web else
+                " You can open pages as tabs in the user's browser (open_in_browser).")
+        if self.browser:
+            note += " You can also use websites - click, type, fill in forms - with the browser tool."
+        system = SYSTEM.format(workspace=workspace, os_name=self.os_name, web=note,
+                               shell="PowerShell" if self.shell == "powershell" else "bash")
+        return system + (BROWSER_RULES if self.browser else "")
+
+    def run(self, name: str, inp: dict):
+        """Run one tool call and log it. Returns text, or a list of content blocks (screenshot).
+        Raises on failure; the caller reports the error back to the model."""
+        say = self.say
+        if name == self.shell_tool["name"]:
+            if inp.get("restart"):
+                self.sh.close()
+                say(f"▶ {self.shell}: (restart)")
+                result = "shell restarted"
+            else:
+                command = inp.get("command")
+                if not isinstance(command, str) or not command.strip():
+                    raise ValueError("missing 'command' (the input may have been cut off); try again")
+                say(f"▶ {self.shell}: {command}")
+                result = self.sh.run(command)
+        elif name == "browser" and self.browser:
+            desc = " ".join(str(inp[k]) for k in ("action", "url", "ref") if inp.get(k) not in (None, ""))
+            if inp.get("action") == "type":
+                desc += f" {inp.get('text', '')!r}" + (" + Enter" if inp.get("submit") else "")
+            elif inp.get("text") is not None:
+                desc += f" {inp['text']!r}"
+            say(f"🖱 browser: {desc}")
+            result = self.browser.run(inp)
+        elif name == "open_in_browser":
+            say(f"🗂 open tab: {inp.get('url')}")
+            result = self.tabs.run(inp.get("url"))
+        elif name == "str_replace_based_edit_tool":
+            say(f"▶ edit: {inp.get('command')} {inp.get('path')}")
+            result = self.editor.run(inp)
+        else:
+            raise ValueError(f"unknown tool {name}")
+        if isinstance(result, list):
+            say("  (screenshot taken)")
+            return result
+        shown = result if name != "browser" else "\n".join(result.splitlines()[:2])
+        say(_show(shown) or "(no output)")
+        return _clip(result) or "(no output)"
+
+    def close(self) -> None:
+        self.sh.close()
+        if self.browser:
+            self.browser.close()
+
+
 def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=sys.stdout,
               shell: str | None = None, web: bool | None = None, tabs: TabOpener | None = None,
               browser: BrowserSession | bool | None = None) -> int:
-    """Returns a process exit code: 0 done, 1 failed. shell: 'bash' or 'powershell' (default: by OS)."""
+    """Claude agent. Returns a process exit code: 0 done, 1 failed."""
     def say(*a):
         print(*a, file=out, flush=True)
 
     workspace.mkdir(parents=True, exist_ok=True)
     client = client or anthropic.Anthropic()
-    shell = shell or ("powershell" if oscompat.IS_WINDOWS else "bash")
-    if shell == "powershell":
-        sh, shell_tool, os_name = PowerShellSession(workspace), POWERSHELL_TOOL, "Windows"
-    else:
-        sh, shell_tool = BashSession(workspace), BASH_TOOL
-        os_name = "macOS" if sys.platform == "darwin" else "Linux"
     web = WEB_ENABLED if web is None else web
-    tabs = tabs or TabOpener()
-    if browser is None or browser is True:
-        browser = BrowserSession(Path(os.environ.get("TASKRUNNER_BROWSER_PROFILE")
-                                      or workspace / ".browser-profile")) if (BROWSER_ENABLED or browser) else None
-    elif browser is False:
-        browser = None
-    tools = [shell_tool, EDITOR_TOOL, OPEN_TAB_TOOL] + (WEB_TOOLS if web else []) + ([BROWSER_TOOL] if browser else [])
-    web_note = (" You can search the web (web_search), read pages and follow their links (web_fetch), "
-                "and open pages as tabs in the user's browser (open_in_browser)." if web else
-                " You can open pages as tabs in the user's browser (open_in_browser).")
-    if browser:
-        web_note += " You can also use websites - click, type, fill in forms - with the browser tool."
-    system = SYSTEM.format(workspace=workspace, os_name=os_name, web=web_note,
-                           shell="PowerShell" if shell == "powershell" else "bash")
-    if browser:
-        system += BROWSER_RULES
-    editor = Editor(workspace)
+    box = Toolbox(workspace, say, shell=shell, tabs=tabs, browser=browser)
+    tools = ([box.shell_tool, EDITOR_TOOL, OPEN_TAB_TOOL] + (WEB_TOOLS if web else [])
+             + ([BROWSER_TOOL] if box.browser else []))
+    system = box.system_prompt(workspace, web)
     messages: list = [{"role": "user", "content": task}]
-    say(f"Agent: {MODEL} (effort {EFFORT}) · workspace: {workspace}\nTask:\n{task}\n")
+    say(f"Agent: Claude {MODEL} (effort {EFFORT}) · workspace: {workspace}\nTask:\n{task}\n")
 
     try:
         for turn in range(1, max_turns + 1):
@@ -380,41 +436,8 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
                 if block.type != "tool_use":
                     continue
                 try:
-                    if block.name == shell_tool["name"]:
-                        if block.input.get("restart"):
-                            sh.close(); result = "shell restarted"
-                            say(f"▶ {shell}: (restart)")
-                        else:
-                            command = block.input.get("command")
-                            if not isinstance(command, str) or not command.strip():
-                                raise ValueError("missing 'command' (the input may have been cut off); try again")
-                            say(f"▶ {shell}: {command}")
-                            result = sh.run(command)
-                    elif block.name == "browser" and browser:
-                        inp = block.input
-                        desc = " ".join(str(inp[k]) for k in ("action", "url", "ref") if inp.get(k) not in (None, ""))
-                        if inp.get("text") is not None and inp.get("action") != "type":
-                            desc += f" {inp['text']!r}"
-                        elif inp.get("action") == "type":
-                            desc += f" {inp.get('text', '')!r}" + (" + Enter" if inp.get("submit") else "")
-                        say(f"🖱 browser: {desc}")
-                        result = browser.run(inp)
-                    elif block.name == "open_in_browser":
-                        say(f"🗂 open tab: {block.input.get('url')}")
-                        result = tabs.run(block.input.get("url"))
-                    elif block.name == "str_replace_based_edit_tool":
-                        say(f"▶ edit: {block.input.get('command')} {block.input.get('path')}")
-                        result = editor.run(block.input)
-                    else:
-                        raise ValueError(f"unknown tool {block.name}")
-                    if isinstance(result, list):  # e.g. a screenshot: image + text blocks
-                        say("  (screenshot taken)")
-                        results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
-                    else:
-                        shown = result if block.name != "browser" else "\n".join(result.splitlines()[:2])
-                        say(_show(shown) or "(no output)")
-                        results.append({"type": "tool_result", "tool_use_id": block.id,
-                                        "content": _clip(result) or "(no output)"})
+                    results.append({"type": "tool_result", "tool_use_id": block.id,
+                                    "content": box.run(block.name, block.input)})
                 except Exception as e:
                     say(f"  ✖ {e}")
                     results.append({"type": "tool_result", "tool_use_id": block.id,
@@ -439,9 +462,7 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
         say(f"✖ Could not reach the Anthropic API: {e}")
         return 1
     finally:
-        sh.close()
-        if browser:
-            browser.close()
+        box.close()
 
 
 def main(argv=None):
@@ -449,15 +470,27 @@ def main(argv=None):
     p.add_argument("--workspace", required=True, type=Path)
     p.add_argument("--task-file", required=True, type=Path)
     p.add_argument("--max-turns", type=int, default=60)
+    p.add_argument("--provider", choices=["claude", "openai"], default="claude")
+    p.add_argument("--model", help="OpenAI model name (provider openai)")
     a = p.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):  # logs are UTF-8 on every OS (Windows defaults to a code page)
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    task = a.task_file.read_text(encoding="utf-8")
+
+    if a.provider == "openai":
+        if not os.environ.get("OPENAI_API_KEY"):
+            print("✖ No OpenAI API key found. Put OPENAI_API_KEY=sk-... in the .env file in the app "
+                  "folder (or set it where the server runs), restart the app, then retry this job.", flush=True)
+            sys.exit(1)
+        from .agent_openai import run_agent_openai
+        sys.exit(run_agent_openai(task, a.workspace.resolve(), a.max_turns, model=a.model))
+
     if not any(os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")) \
             and not Path.home().joinpath(".config/anthropic").exists():
         print("✖ No Anthropic credentials found. Set ANTHROPIC_API_KEY in the environment "
               "where the task runner server runs, then retry this job.", flush=True)
         sys.exit(1)
-    sys.exit(run_agent(a.task_file.read_text(encoding="utf-8"), a.workspace.resolve(), a.max_turns))
+    sys.exit(run_agent(task, a.workspace.resolve(), a.max_turns))
 
 
 if __name__ == "__main__":

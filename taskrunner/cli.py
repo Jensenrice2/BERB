@@ -112,6 +112,7 @@ def main(argv=None):
     s.add_argument("--open", action="store_true", help="open the dashboard in your browser once it's ready")
     a = sub.add_parser("add"); a.add_argument("command"); a.add_argument("--name"); a.add_argument("--cwd"); a.add_argument("--timeout", type=float)
     ag = sub.add_parser("agent"); ag.add_argument("task"); ag.add_argument("--name"); ag.add_argument("--cwd"); ag.add_argument("--timeout", type=float)
+    ag.add_argument("--provider", choices=["claude", "openai"], default="claude"); ag.add_argument("--model")
     sub.add_parser("files").add_argument("id", type=int)
     l = sub.add_parser("list"); l.add_argument("--status")
     for name in ("show", "cancel", "retry", "rm"):
@@ -135,7 +136,8 @@ def main(argv=None):
             body["cwd"] = os.path.abspath(body["cwd"])
         print(fmt(call("POST", "/api/jobs", body)))
     elif args.cmd == "agent":
-        body = {k: v for k, v in vars(args).items() if k in ("task", "name", "cwd", "timeout") and v is not None}
+        body = {k: v for k, v in vars(args).items()
+                if k in ("task", "name", "cwd", "timeout", "provider", "model") and v is not None}
         body["kind"] = "agent"
         if "cwd" in body:
             body["cwd"] = os.path.abspath(body["cwd"])

@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     name        TEXT NOT NULL,
     kind        TEXT NOT NULL DEFAULT 'shell',   -- 'shell' | 'agent'
     command     TEXT NOT NULL,                   -- shell command, or the agent's task text
+    provider    TEXT,                            -- agent jobs: 'claude' | 'openai'
+    model       TEXT,                            -- agent jobs: OpenAI model name
     cwd         TEXT,
     timeout     REAL,
     status      TEXT NOT NULL DEFAULT 'queued',
@@ -40,6 +42,9 @@ class Store:
             cols = {r[1] for r in self._conn.execute("PRAGMA table_info(jobs)")}
             if "kind" not in cols:  # upgrade databases created before agent jobs existed
                 self._conn.execute("ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'shell'")
+            for col in ("provider", "model"):  # ... and before the AI provider choice
+                if col not in cols:
+                    self._conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
             self._conn.commit()
 
     def _exec(self, sql: str, args: tuple = ()) -> sqlite3.Cursor:
@@ -49,10 +54,11 @@ class Store:
             return cur
 
     def create(self, name: str, command: str, cwd: str | None, timeout: float | None,
-               kind: str = "shell") -> dict:
+               kind: str = "shell", provider: str | None = None, model: str | None = None) -> dict:
         cur = self._exec(
-            "INSERT INTO jobs (name, kind, command, cwd, timeout, created_at) VALUES (?,?,?,?,?,?)",
-            (name, kind, command, cwd, timeout, time.time()),
+            "INSERT INTO jobs (name, kind, command, cwd, timeout, provider, model, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (name, kind, command, cwd, timeout, provider, model, time.time()),
         )
         return self.get(cur.lastrowid)
 
