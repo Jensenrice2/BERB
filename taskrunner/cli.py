@@ -87,7 +87,7 @@ def call(method: str, path: str, body: dict | None = None):
 
 
 def fmt(j: dict) -> str:
-    kind = "🤖 " if j.get("kind") == "agent" else ""
+    kind = "[AI] " if j.get("kind") == "agent" else ""
     return f"#{j['id']:<4} {j['status']:<10} {kind}{j['name']}"
 
 

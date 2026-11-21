@@ -358,20 +358,20 @@ class Toolbox:
         labels = getattr(self.browser, "labels", {}) if self.browser else {}
         self.events.emit("step", describe_step(name, inp, labels) or "")
         if name == "ask_user" and self.asker:
-            say(f"❓ asked the user: {inp.get('question')}")
+            say(f"asked the user: {inp.get('question')}")
             result = self.asker.ask(inp.get("question"))
             say(f"  {result}")
             return result
         if name == self.shell_tool["name"]:
             if inp.get("restart"):
                 self.sh.close()
-                say(f"▶ {self.shell}: (restart)")
+                say(f"{self.shell}: (restart)")
                 result = "shell restarted"
             else:
                 command = inp.get("command")
                 if not isinstance(command, str) or not command.strip():
                     raise ValueError("missing 'command' (the input may have been cut off); try again")
-                say(f"▶ {self.shell}: {command}")
+                say(f"{self.shell}: {command}")
                 result = self.sh.run(command)
         elif name == "browser" and self.browser:
             desc = " ".join(str(inp[k]) for k in ("action", "url", "ref") if inp.get(k) not in (None, ""))
@@ -379,13 +379,13 @@ class Toolbox:
                 desc += f" {inp.get('text', '')!r}" + (" + Enter" if inp.get("submit") else "")
             elif inp.get("text") is not None:
                 desc += f" {inp['text']!r}"
-            say(f"🖱 browser: {desc}")
+            say(f"browser: {desc}")
             result = self.browser.run(inp)
         elif name == "open_in_browser":
-            say(f"🗂 open tab: {inp.get('url')}")
+            say(f"open tab: {inp.get('url')}")
             result = self.tabs.run(inp.get("url"))
         elif name == "str_replace_based_edit_tool":
-            say(f"▶ edit: {inp.get('command')} {inp.get('path')}")
+            say(f"edit: {inp.get('command')} {inp.get('path')}")
             result = self.editor.run(inp)
         else:
             raise ValueError(f"unknown tool {name}")
@@ -417,7 +417,7 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
         print(*a, file=out, flush=True)
 
     def fail(friendly: str, technical: str | None = None) -> int:
-        say("✖ " + (technical or friendly))
+        say("Error: " + (technical or friendly))
         events.emit("error", friendly)
         return 1
 
@@ -450,7 +450,7 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
                     if event.type == "content_block_delta":
                         if event.delta.type == "thinking_delta" and event.delta.thinking:
                             if not in_thinking:
-                                out.write("💭 "); in_thinking = True
+                                out.write("(thinking) "); in_thinking = True
                             out.write(event.delta.thinking); out.flush()
                         elif event.delta.type == "text_delta":
                             out.write(event.delta.text); out.flush()
@@ -466,16 +466,16 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
             for block in response.content:  # web tools run on Anthropic's side; just log them
                 if block.type == "server_tool_use":
                     target = block.input.get("query") or block.input.get("url") or ""
-                    say(f"🌐 {block.name}: {target}")
+                    say(f"{block.name}: {target}")
                     events.emit("step", describe_step(block.name, block.input) or "")
                 elif block.type == "web_fetch_tool_result" and getattr(block.content, "type", "") == "web_fetch_tool_error":
-                    say(f"  ✖ could not fetch page ({getattr(block.content, 'error_code', 'error')})")
+                    say(f"  error: could not fetch page ({getattr(block.content, 'error_code', 'error')})")
 
             if response.stop_reason == "refusal":
                 return fail("The AI declined this task.")
             if response.stop_reason == "end_turn":
                 events.emit("report", said or "Finished.")
-                say(f"✔ Agent finished after {turn} turn(s).")
+                say(f"Agent finished after {turn} turn(s).")
                 return 0
             if response.stop_reason == "pause_turn":
                 continue
@@ -491,7 +491,7 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
                     results.append({"type": "tool_result", "tool_use_id": block.id,
                                     "content": box.run(block.name, block.input)})
                 except Exception as e:
-                    say(f"  ✖ {e}")
+                    say(f"  error: {e}")
                     results.append({"type": "tool_result", "tool_use_id": block.id,
                                     "content": f"Error: {e}", "is_error": True})
             if not results:
@@ -502,14 +502,14 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
                     f"Stopped: reached the limit of {max_turns} turns.")
     except anthropic.AuthenticationError:
         events.emit("error", "Anthropic didn't accept your API key. Make a new key and put it in your .env file.")
-        say("✖ Anthropic rejected the API key (it's wrong, incomplete, or was deleted).")
+        say("Error: Anthropic rejected the API key (it's wrong, incomplete, or was deleted).")
         if os.environ.get("ANTHROPIC_API_KEY"):
             say("  " + key_hint("ANTHROPIC_API_KEY", "sk-ant-"))
         say("  Fix: create a new key at https://console.anthropic.com (Settings → API Keys), copy it with the "
             "Copy button, put it after ANTHROPIC_API_KEY= in .env on one line, save, restart the app, and retry.")
         return 1
     except anthropic.APIStatusError as e:
-        say(f"✖ API error {e.status_code}: {e.message}")
+        say(f"Error: API error {e.status_code}: {e.message}")
         events.emit("error", "Anthropic's service returned an error"
                     + (" - your account may be out of credit." if "credit" in str(e.message).lower() else ".")
                     + " Show technical details for more.")
@@ -518,7 +518,7 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
                 "Claude Console (Settings → Privacy), or set TASKRUNNER_AGENT_WEB=0 to run agents without it.")
         return 1
     except anthropic.APIConnectionError as e:
-        say(f"✖ Could not reach the Anthropic API: {e}")
+        say(f"Error: could not reach the Anthropic API: {e}")
         events.emit("error", "Couldn't reach Anthropic. Check your internet connection and try again.")
         return 1
     finally:
@@ -566,7 +566,7 @@ def main(argv=None):
 
     if not any(os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")) \
             and not Path.home().joinpath(".config/anthropic").exists():
-        print("✖ No Anthropic credentials found. Set ANTHROPIC_API_KEY in the environment "
+        print("Error: no Anthropic credentials found. Set ANTHROPIC_API_KEY in the environment "
               "where the task runner server runs, then retry this job.", flush=True)
         events.emit("error", "No Anthropic API key found. Add ANTHROPIC_API_KEY=... to your .env file, "
                              "restart the app, then run this again.")

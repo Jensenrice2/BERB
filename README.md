@@ -137,7 +137,7 @@ Interactive docs: `/docs`.
 
 Click the **B.E.R.B logo** (top left) to open the side panel:
 
-- **Folders:** make folders such as "Trip planning" or "Job search". Click one to see just its tasks; new tasks go into the open folder, which is shown at the top of the screen. Tasks in a folder **share a space for files**, so Claude can build on what an earlier task made ("now turn that list into a budget"). Rename or delete a folder with the ✎ and 🗑 buttons. Deleting a folder keeps its tasks (under All tasks) and its files.
+- **Folders:** make folders such as "Trip planning" or "Job search". Click one to see just its tasks; new tasks go into the open folder, which is shown at the top of the screen. Tasks in a folder **share a space for files**, so Claude can build on what an earlier task made ("now turn that list into a budget"). Rename or delete a folder with its Rename and Delete buttons (hover over it). Deleting a folder keeps its tasks (under All tasks) and its files.
 - **⚙ Settings** (bottom of the panel): **Appearance** (Automatic, Light or Dark) and **Saved logins**.
 - **⏻ Turn off B.E.R.B** (bottom of the panel, next to Settings).
 

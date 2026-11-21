@@ -131,7 +131,11 @@
   /* activity feed */
   ol.feed { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
   .feed li { display: grid; grid-template-columns: 26px 1fr; gap: 6px; padding: 5px 0; }
-  .feed .ic { text-align: center; }
+  .feed .ic { display: flex; justify-content: center; padding-top: 9px; }
+  .mark { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); display: block; }
+  .mark.m-msg { background: var(--muted); } .mark.m-ask { background: var(--ask); } .mark.m-you { background: var(--accent); }
+  .mark.m-ok { background: var(--ok); } .mark.m-bad { background: var(--bad); }
+  .feed .msg .ic, .feed .you .ic, .feed .q .ic { padding-top: 16px; }
   .feed .step { color: var(--muted); font-size: 14px; }
   .feed .msg .body { background: var(--soft); border-radius: 12px; padding: 9px 13px; }
   .feed .you .body { background: var(--accent-soft); border-radius: 12px; padding: 9px 13px; }
@@ -187,7 +191,7 @@
   .folders .fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .folders .count { color: var(--muted); font-size: 13px; font-weight: 400; }
   .folders .busy { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-  .folders .act { display: none; padding: 2px 6px; font-size: 13px; }
+  .folders .act { display: none; padding: 2px 6px; font-size: 12.5px; font-weight: 500; }
   .folders li:hover .act, .folders li:focus-within .act { display: inline-block; }
   .folders .sep { height: 1px; background: var(--line); margin: 6px 4px; padding: 0; cursor: default; }
   .new-folder { display: flex; gap: 8px; padding: 0; }
@@ -196,6 +200,7 @@
                  font: inherit; font-size: 13.5px; cursor: pointer; max-width: 260px; overflow: hidden;
                  text-overflow: ellipsis; white-space: nowrap; }
   .folder-chip:hover { background: var(--accent-soft); color: var(--accent); }
+  .folder-chip .lbl { color: var(--muted); }
   .in-folder { color: var(--muted); font-weight: 500; }
   .dlg .note { margin: 0; color: var(--muted); font-size: 13.5px; }
   .switch { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 12px; background: var(--soft); cursor: pointer; }
@@ -224,7 +229,7 @@
 <header>
   <h1><button id="menuBtn" class="logo-btn" type="button" aria-haspopup="dialog" aria-controls="settings"
        title="Settings"><img src="/static/icons/logo-64.png" alt=""><span>B.E.R.B</span><span class="chev" aria-hidden="true">›</span></button></h1>
-  <button id="folderChip" class="folder-chip" type="button" hidden title="Choose a folder">📁 <span></span></button>
+  <button id="folderChip" class="folder-chip" type="button" hidden title="Choose a folder"><span class="lbl">Folder</span> <span class="name"></span></button>
   <div id="stats" aria-live="polite"></div>
   <button id="install" class="btn" type="button">Install app</button>
 </header>
@@ -285,7 +290,7 @@
 
     <div class="view" id="viewSettings" hidden>
       <section class="setting">
-        <h3>🎨 Appearance</h3>
+        <h3>Appearance</h3>
         <div class="seg" role="radiogroup" aria-label="Appearance">
           <label><input type="radio" name="theme" value="auto"> Automatic</label>
           <label><input type="radio" name="theme" value="light"> Light</label>
@@ -294,7 +299,7 @@
         <p class="note">Automatic follows your computer's light or dark mode.</p>
       </section>
       <section class="setting" aria-labelledby="loginsTitle">
-        <h3 id="loginsTitle">🔑 Saved logins</h3>
+        <h3 id="loginsTitle">Saved logins</h3>
         <label class="switch"><input type="checkbox" id="remember">
           <span><b>Remember passwords</b>
             <span class="note">Let B.E.R.B sign in to websites for you. Passwords are kept in your computer's own
@@ -476,29 +481,26 @@ async function loadFiles(id) {
         <button class="btn quiet" style="padding:0 6px;font-size:12px;text-transform:none;letter-spacing:0" type="button"
           data-copy="${esc(r.workspace)}">Copy folder location</button></p>
       <div class="files">${r.files.map(f => `<a target="_blank" title="Open ${esc(f.path)}"
-        href="/api/jobs/${id}/files/${f.path.split('/').map(encodeURIComponent).join('/')}">📄 ${esc(f.path)}
+        href="/api/jobs/${id}/files/${f.path.split('/').map(encodeURIComponent).join('/')}">${esc(f.path)}
         <span class="sz">${size(f.size)}</span></a>`).join('')}</div>`;
   } catch {}
 }
 
-const STEP_ICON = [[/^Looked at the page/, '👀'], [/^Searched/, '🔍'], [/^(Went to|Read|Went back)/, '🌐'], [/^Clicked/, '👆'], [/^Typed/, '⌨️'],
-  [/^(Saved|Edited|Looked at|Worked on)/, '📄'], [/^Opened/, '🗂️'], [/^(Chose|Ticked|Unticked)/, '☑️'],
-  [/^Ran a command/, '⚙️']];
 function feedItem(e) {
   const li = document.createElement('li');
   if (e.type === 'step') {
     li.className = 'step';
-    li.innerHTML = `<span class="ic">${(STEP_ICON.find(([re]) => re.test(e.text)) || [0, '•'])[1]}</span><span>${esc(e.text)}</span>`;
+    li.innerHTML = `<span class="ic"><i class="mark m-step"></i></span><span>${esc(e.text)}</span>`;
   } else if (e.type === 'message') {
-    li.className = 'msg'; li.innerHTML = `<span class="ic">💬</span><div class="body md">${md(e.text)}</div>`;
+    li.className = 'msg'; li.innerHTML = `<span class="ic"><i class="mark m-msg"></i></span><div class="body md">${md(e.text)}</div>`;
   } else if (e.type === 'question') {
-    li.className = 'q'; li.innerHTML = `<span class="ic">❓</span><div class="body"><span class="who">Claude asked</span>${esc(e.text)}</div>`;
+    li.className = 'q'; li.innerHTML = `<span class="ic"><i class="mark m-ask"></i></span><div class="body"><span class="who">Claude asked</span>${esc(e.text)}</div>`;
   } else if (e.type === 'answer') {
-    li.className = 'you'; li.innerHTML = `<span class="ic">🙂</span><div class="body"><span class="who">You answered</span>${esc(e.text)}</div>`;
+    li.className = 'you'; li.innerHTML = `<span class="ic"><i class="mark m-you"></i></span><div class="body"><span class="who">You answered</span>${esc(e.text)}</div>`;
   } else if (e.type === 'report') {
-    li.className = 'step'; li.innerHTML = '<span class="ic">✅</span><span>Finished and wrote the result above</span>';
+    li.className = 'step'; li.innerHTML = '<span class="ic"><i class="mark m-ok"></i></span><span>Finished and wrote the result above</span>';
   } else if (e.type === 'error') {
-    li.className = 'err'; li.innerHTML = `<span class="ic">⚠️</span><div class="body">${esc(e.text)}</div>`;
+    li.className = 'err'; li.innerHTML = `<span class="ic"><i class="mark m-bad"></i></span><div class="body">${esc(e.text)}</div>`;
   }
   return li;
 }
@@ -678,7 +680,7 @@ function folderName(id) { const f = folders.find(x => x.id === id); return f ? f
 function showFolder() {
   const name = currentFolder != null ? folderName(currentFolder) : '';
   $('#folderChip').hidden = !name;
-  $('#folderChip').querySelector('span').textContent = name;
+  $('#folderChip').querySelector('.name').textContent = name;
   $('#inFolder').textContent = name ? ` in ${name}` : '';
   $('#tasksTitle').textContent = name || 'Tasks';
 }
@@ -687,11 +689,10 @@ async function loadFolders() {
   if (currentFolder != null && !folders.some(f => f.id === currentFolder)) setFolder(null, false);
   const item = (id, name, count, busy) => `
     <li data-folder="${id ?? ''}" class="${(id ?? null) === currentFolder ? 'on' : ''}" tabindex="0">
-      <span aria-hidden="true">${id == null ? '🗂️' : '📁'}</span>
       <span class="fname">${esc(name)}</span>${busy ? '<span class="busy" title="Working"></span>' : ''}
       <span class="count">${count}</span>
-      ${id == null ? '' : `<button class="btn quiet act" type="button" data-rename="${id}" title="Rename" aria-label="Rename ${esc(name)}">✎</button>
-      <button class="btn quiet act danger" type="button" data-delfolder="${id}" title="Delete" aria-label="Delete ${esc(name)}">🗑</button>`}
+      ${id == null ? '' : `<button class="btn quiet act" type="button" data-rename="${id}" aria-label="Rename ${esc(name)}">Rename</button>
+      <button class="btn quiet act danger" type="button" data-delfolder="${id}" aria-label="Delete ${esc(name)}">Delete</button>`}
     </li>`;
   $('#folderList').innerHTML = item(null, 'All tasks', totalTasks, false)
     + (folders.length ? '<li class="sep" aria-hidden="true"></li>' : '')

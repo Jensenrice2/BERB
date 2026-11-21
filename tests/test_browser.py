@@ -154,6 +154,6 @@ def test_agent_drives_browser(tmp_path, site):
     shot = client.requests[3]["messages"][-1]["content"][0]["content"]
     assert shot[0]["type"] == "image" and shot[1]["type"] == "text"
     out = log.getvalue()
-    assert "🖱 browser: open " + site in out and "🖱 browser: type 1 'Grace' + Enter" in out
+    assert "browser: open " + site in out and "browser: type 1 'Grace' + Enter" in out
     assert "(screenshot taken)" in out
     assert b.page is None  # browser closed when the task ended

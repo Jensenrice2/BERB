@@ -111,7 +111,7 @@ def test_agent_uses_tools_and_finishes(tmp_path, shell):
     assert {sh, "str_replace_based_edit_tool", "open_in_browser"} <= {t["name"] for t in req["tools"]}
     assert str(tmp_path) in req["system"]
     assert ("PowerShell" if shell == "powershell" else "bash") in req["system"]
-    assert "Done: wrote" in log.getvalue() and f"▶ {shell}" in log.getvalue()
+    assert "Done: wrote" in log.getvalue() and f"{shell}: " in log.getvalue()
 
 
 def test_default_shell_matches_os(tmp_path):
@@ -221,7 +221,7 @@ def test_open_in_browser_tool(tmp_path):
     assert not res["a"].get("is_error") and not res["d"].get("is_error")
     assert res["b"]["is_error"] and res["c"]["is_error"] and "http" in res["b"]["content"]
     assert res["e"]["is_error"] and "tab limit" in res["e"]["content"]
-    assert "🗂 open tab: https://example.com/one" in log.getvalue()
+    assert "open tab: https://example.com/one" in log.getvalue()
 
 
 def test_web_tools_offered_and_logged(tmp_path):
@@ -241,7 +241,7 @@ def test_web_tools_offered_and_logged(tmp_path):
     assert {"web_search_20260209", "web_fetch_20260209"} <= types
     assert "web_fetch" in client.requests[0]["system"]
     out = log.getvalue()
-    assert "🌐 web_search: best hiking boots" in out and "🌐 web_fetch: https://example.com/boots" in out
+    assert "web_search: best hiking boots" in out and "web_fetch: https://example.com/boots" in out
     assert "could not fetch page (url_not_accessible)" in out
 
 
