@@ -162,7 +162,11 @@ def run_agent_openai(task: str, workspace: Path, max_turns: int = 60, client=Non
         say(f"✖ Stopped: reached the limit of {max_turns} turns.")
         return 1
     except openai.AuthenticationError:
-        say("✖ The OpenAI API key was rejected. Check OPENAI_API_KEY in your .env file.")
+        from .agent import key_hint
+        say("✖ OpenAI rejected the API key (it's wrong, incomplete, or was deleted).")
+        say("  " + key_hint("OPENAI_API_KEY", "sk-"))
+        say("  Fix: create a new key at https://platform.openai.com/api-keys, put it after OPENAI_API_KEY= in "
+            ".env on one line, save, restart the app, and retry.")
         return 1
     except openai.NotFoundError as e:
         say(f"✖ OpenAI couldn't find the model {model!r} (or your account can't use it): {e.message}")

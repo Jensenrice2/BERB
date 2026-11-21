@@ -450,7 +450,11 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
         say(f"✖ Stopped: reached the limit of {max_turns} turns.")
         return 1
     except anthropic.AuthenticationError:
-        say("✖ No valid Anthropic credentials. Set ANTHROPIC_API_KEY for the task runner server.")
+        say("✖ Anthropic rejected the API key (it's wrong, incomplete, or was deleted).")
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            say("  " + key_hint("ANTHROPIC_API_KEY", "sk-ant-"))
+        say("  Fix: create a new key at https://console.anthropic.com (Settings → API Keys), copy it with the "
+            "Copy button, put it after ANTHROPIC_API_KEY= in .env on one line, save, restart the app, and retry.")
         return 1
     except anthropic.APIStatusError as e:
         say(f"✖ API error {e.status_code}: {e.message}")
@@ -465,6 +469,31 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
         box.close()
 
 
+def clean_key(name: str) -> None:
+    """Forgive common copy-paste slips in a key from .env: spaces, quotes, an invisible BOM."""
+    bom_name = "\ufeff" + name  # a .env saved with a byte-order mark hides the first variable
+    if not os.environ.get(name) and os.environ.get(bom_name):
+        os.environ[name] = os.environ.pop(bom_name)
+    value = os.environ.get(name)
+    if value:
+        cleaned = value.replace("\ufeff", "").strip().strip('"').strip("'").strip()
+        if cleaned != value:
+            os.environ[name] = cleaned
+
+
+def key_hint(name: str, prefix: str) -> str:
+    """Enough to spot a bad copy, never enough to use: start, end and length only."""
+    v = os.environ.get(name, "")
+    if not v:
+        return f"{name} is empty."
+    msg = f"The key the app loaded is {v[:12]}...{v[-4:]} ({len(v)} characters)."
+    if len(v) < 60:
+        msg += " That's far too short - a real key is about 100 characters, so it was probably cut off when copied."
+    if not v.startswith(prefix):
+        msg += f" It should start with {prefix!r} - check it's the right kind of key on the right line."
+    return msg
+
+
 def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--workspace", required=True, type=Path)
@@ -476,6 +505,8 @@ def main(argv=None):
     if hasattr(sys.stdout, "reconfigure"):  # logs are UTF-8 on every OS (Windows defaults to a code page)
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     task = a.task_file.read_text(encoding="utf-8")
+    for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+        clean_key(name)
 
     if a.provider == "openai":
         if not os.environ.get("OPENAI_API_KEY"):

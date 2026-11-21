@@ -250,3 +250,38 @@ def test_web_tools_can_be_turned_off(tmp_path):
     run_agent("x", tmp_path, client=client, out=io.StringIO(), web=False)
     names = {t["name"] for t in client.requests[0]["tools"]}
     assert "web_search" not in names and "web_fetch" not in names and "open_in_browser" in names
+
+
+def test_key_cleanup_and_hint(monkeypatch):
+    from taskrunner.agent import clean_key, key_hint
+    monkeypatch.setenv("ANTHROPIC_API_KEY", '  "sk-ant-api03-' + "x" * 90 + 'WXYZ"  ')
+    clean_key("ANTHROPIC_API_KEY")
+    v = os.environ["ANTHROPIC_API_KEY"]
+    assert v.startswith("sk-ant-api03-") and v.endswith("WXYZ") and " " not in v and '"' not in v
+    hint = key_hint("ANTHROPIC_API_KEY", "sk-ant-")
+    assert "sk-ant-api03...WXYZ" in hint and "x" * 10 not in hint  # never reveals the key
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-us=")
+    assert "far too short" in key_hint("ANTHROPIC_API_KEY", "sk-ant-")
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    monkeypatch.setenv("﻿ANTHROPIC_API_KEY", "sk-ant-abc")  # .env saved with a byte-order mark
+    clean_key("ANTHROPIC_API_KEY")
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-ant-abc"
+
+
+def test_rejected_key_message(tmp_path, monkeypatch):
+    import anthropic
+    import httpx2 as httpx
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-us=")
+
+    class Rejecting:
+        def __init__(self):
+            self.beta = NS(messages=NS(stream=self._stream))
+
+        def _stream(self, **kw):
+            req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+            raise anthropic.AuthenticationError("invalid x-api-key", response=httpx.Response(401, request=req), body=None)
+
+    log = io.StringIO()
+    assert run_agent("x", tmp_path, client=Rejecting(), out=log, browser=False) == 1
+    out = log.getvalue()
+    assert "rejected the API key" in out and "far too short" in out and "console.anthropic.com" in out
