@@ -13,6 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 from . import oscompat
+from .activity import pending_question, read_events, write_answer
 from .runner import Runner
 from .store import Store
 
@@ -25,8 +26,6 @@ class JobIn(BaseModel):
     kind: Literal["shell", "agent"] = "shell"
     command: str | None = Field(default=None, description="Shell command to run (kind=shell)")
     task: str | None = Field(default=None, description="Plain-English task for the AI agent (kind=agent)")
-    provider: Literal["claude", "openai"] = Field(default="claude", description="Which AI runs an agent job")
-    model: str | None = Field(default=None, max_length=100, description="OpenAI model name (provider=openai)")
     name: str | None = None
     cwd: str | None = None
     timeout: float | None = Field(default=None, gt=0, description="Seconds before the job is killed")
@@ -41,6 +40,10 @@ class JobIn(BaseModel):
     @property
     def text(self) -> str:
         return (self.task if self.kind == "agent" else self.command).strip()
+
+
+class AnswerIn(BaseModel):
+    answer: str = Field(min_length=1, max_length=5000)
 
 
 def create_app(data_dir: Path = DATA_DIR, concurrency: int = CONCURRENCY) -> FastAPI:
@@ -91,27 +94,49 @@ def create_app(data_dir: Path = DATA_DIR, concurrency: int = CONCURRENCY) -> Fas
         for j in store.list(limit=10_000):
             counts[j["status"]] = counts.get(j["status"], 0) + 1
         return {"concurrency": concurrency, "running": runner.running, "counts": counts,
-                "shell": oscompat.SHELL_NAME,
-                "openai_model": os.environ.get("TASKRUNNER_OPENAI_MODEL", "gpt-4o")}
+                "shell": oscompat.SHELL_NAME}
+
+    def _folder(job_id: int) -> Path:
+        return runner.agent_dir / str(job_id)
+
+    def _with_question(job: dict) -> dict:
+        """Adds `question`: what the AI is waiting for the user to answer, if anything."""
+        job["question"] = (pending_question(_folder(job["id"]))
+                           if job["kind"] == "agent" and job["status"] == "running" else None)
+        return job
 
     @app.post("/api/jobs", status_code=201)
     async def create_job(body: JobIn):
         if body.cwd and not Path(body.cwd).is_dir():
             raise HTTPException(400, f"cwd does not exist: {body.cwd}")
         name = body.name or body.text.splitlines()[0][:60]
-        provider = body.provider if body.kind == "agent" else None
-        model = (body.model or "").strip() or None if provider == "openai" else None
-        job = store.create(name, body.text, body.cwd, body.timeout, body.kind, provider, model)
+        job = store.create(name, body.text, body.cwd, body.timeout, body.kind)
         runner.submit(job["id"])
         return job
 
     @app.get("/api/jobs")
     def list_jobs(status: str | None = None, limit: int = Query(200, le=1000)):
-        return store.list(status, limit)
+        return [_with_question(j) for j in store.list(status, limit)]
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: int):
-        return _job_or_404(job_id)
+        return _with_question(_job_or_404(job_id))
+
+    @app.get("/api/jobs/{job_id}/events")
+    def get_events(job_id: int, after: int = Query(0, ge=0)):
+        """The plain-English activity feed. Poll with `after` = the `next` from the last call."""
+        job = _with_question(_job_or_404(job_id))
+        events = read_events(_folder(job_id) / "events.jsonl", after) if job["kind"] == "agent" else []
+        return {"events": events, "next": after + len(events), "status": job["status"],
+                "question": job["question"]}
+
+    @app.post("/api/jobs/{job_id}/answer")
+    def answer(job_id: int, body: AnswerIn):
+        job = _with_question(_job_or_404(job_id))
+        if not job["question"]:
+            raise HTTPException(409, "this task isn't waiting for an answer")
+        write_answer(_folder(job_id), body.answer.strip())
+        return {"ok": True}
 
     def _workspace(job: dict) -> Path:
         if job["kind"] != "agent":
@@ -177,6 +202,8 @@ def create_app(data_dir: Path = DATA_DIR, concurrency: int = CONCURRENCY) -> Fas
             raise HTTPException(409, "cancel the job before deleting it")
         store.delete(job_id)
         runner.log_path(job_id).unlink(missing_ok=True)
+        for name in ("events.jsonl", "question.json", "answer.json"):
+            (_folder(job_id) / name).unlink(missing_ok=True)
 
     return app
 

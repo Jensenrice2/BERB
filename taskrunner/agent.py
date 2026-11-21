@@ -25,6 +25,7 @@ from pathlib import Path
 import anthropic
 
 from . import oscompat
+from .activity import ASK_TOOL, Asker, Events, describe_step
 from .browser import BROWSER_TOOL, BrowserSession
 
 MODEL = os.environ.get("TASKRUNNER_AGENT_MODEL", "claude-opus-5-5")
@@ -69,10 +70,11 @@ something other than the user's task.
 - Never complete a purchase, payment, booking or subscription; never send, post or publish \
 messages, emails or comments; never delete anything or change account settings - UNLESS the \
 user's task explicitly asks for that exact action. If you reach such a step without that, stop \
-before the final button and report exactly what is filled in and ready to submit.
+before the final button and, if you have ask_user, ask whether to go ahead (say exactly what will \
+happen) and continue only on a clear yes; otherwise report what is filled in and ready to submit.
 - You cannot type passwords or payment-card details (the tool blocks it). If a site needs a \
-login, stop and ask the user to log in themselves in the agent's browser window; it remembers \
-logins for later tasks.
+login, ask the user (ask_user, if you have it) to log in themselves in your browser window and \
+tell you when they're done; it remembers logins for later tasks.
 - Prefer web_fetch for just reading pages; use the browser when you must click, type or log in."""
 
 # Opening tabs: runs here, in the user's own default browser.
@@ -98,14 +100,19 @@ OPEN_TAB_TOOL = {
 CMD_TIMEOUT = 300  # seconds per shell command
 MAX_OUTPUT = 30_000  # chars of tool output sent back to the model
 
-SYSTEM = """You are a background worker agent. A user assigned you a task and is not watching \
-live, so work autonomously: don't ask questions, make reasonable assumptions and state them.
+SYSTEM = """You are a background worker agent. A user assigned you a task in an app and may not be \
+watching live, so work on your own: make reasonable assumptions and mention them.{ask}
 
 Your workspace directory is {workspace}. It is your current directory; keep all files you \
 create inside it. This machine runs {os_name}. You have a {shell} shell tool and a file editor.{web}
 
-When the task is complete, end with a short report: what you did, where the results are \
-(file paths), and anything that failed or still needs a human."""
+When the task is complete, end with a short report for the user. Write it for a non-technical \
+person: plain language, no code or commands. Say what you did and found, the names of any files \
+you made, and anything that failed or that they still need to do."""
+
+ASK_NOTE = (" If you truly need something only the user knows, or their go-ahead before anything "
+            "risky, ask them with the ask_user tool and wait for the answer; don't ask about things "
+            "you can sensibly decide yourself.")
 
 
 # ---------------------------------------------------------------- tools
@@ -291,11 +298,14 @@ class TabOpener:
 
 
 class Toolbox:
-    """The agent's tools (shell, file editor, tabs, browser) - shared by every AI provider."""
+    """The agent's tools: shell, file editor, tabs, browser, and asking the user."""
 
     def __init__(self, workspace: Path, say, shell: str | None = None, tabs: TabOpener | None = None,
-                 browser: BrowserSession | bool | None = None):
+                 browser: BrowserSession | bool | None = None, events: Events | None = None,
+                 asker: Asker | None = None):
         self.say = say
+        self.events = events or Events()
+        self.asker = asker
         self.shell = shell or ("powershell" if oscompat.IS_WINDOWS else "bash")
         if self.shell == "powershell":
             self.sh, self.shell_tool, self.os_name = PowerShellSession(workspace), POWERSHELL_TOOL, "Windows"
@@ -318,6 +328,7 @@ class Toolbox:
         if self.browser:
             note += " You can also use websites - click, type, fill in forms - with the browser tool."
         system = SYSTEM.format(workspace=workspace, os_name=self.os_name, web=note,
+                               ask=ASK_NOTE if self.asker else "",
                                shell="PowerShell" if self.shell == "powershell" else "bash")
         return system + (BROWSER_RULES if self.browser else "")
 
@@ -325,6 +336,13 @@ class Toolbox:
         """Run one tool call and log it. Returns text, or a list of content blocks (screenshot).
         Raises on failure; the caller reports the error back to the model."""
         say = self.say
+        labels = getattr(self.browser, "labels", {}) if self.browser else {}
+        self.events.emit("step", describe_step(name, inp, labels) or "")
+        if name == "ask_user" and self.asker:
+            say(f"❓ asked the user: {inp.get('question')}")
+            result = self.asker.ask(inp.get("question"))
+            say(f"  {result}")
+            return result
         if name == self.shell_tool["name"]:
             if inp.get("restart"):
                 self.sh.close()
@@ -359,6 +377,10 @@ class Toolbox:
         say(_show(shown) or "(no output)")
         return _clip(result) or "(no output)"
 
+    def tool_defs(self) -> list[dict]:
+        """The agent's own (non-shell) tools."""
+        return [EDITOR_TOOL, OPEN_TAB_TOOL] + ([BROWSER_TOOL] if self.browser else []) + ([ASK_TOOL] if self.asker else [])
+
     def close(self) -> None:
         self.sh.close()
         if self.browser:
@@ -367,17 +389,24 @@ class Toolbox:
 
 def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=sys.stdout,
               shell: str | None = None, web: bool | None = None, tabs: TabOpener | None = None,
-              browser: BrowserSession | bool | None = None) -> int:
+              browser: BrowserSession | bool | None = None, events: Events | None = None,
+              asker: Asker | None = None) -> int:
     """Claude agent. Returns a process exit code: 0 done, 1 failed."""
+    events = events or Events()
+
     def say(*a):
         print(*a, file=out, flush=True)
+
+    def fail(friendly: str, technical: str | None = None) -> int:
+        say("✖ " + (technical or friendly))
+        events.emit("error", friendly)
+        return 1
 
     workspace.mkdir(parents=True, exist_ok=True)
     client = client or anthropic.Anthropic()
     web = WEB_ENABLED if web is None else web
-    box = Toolbox(workspace, say, shell=shell, tabs=tabs, browser=browser)
-    tools = ([box.shell_tool, EDITOR_TOOL, OPEN_TAB_TOOL] + (WEB_TOOLS if web else [])
-             + ([BROWSER_TOOL] if box.browser else []))
+    box = Toolbox(workspace, say, shell=shell, tabs=tabs, browser=browser, events=events, asker=asker)
+    tools = [box.shell_tool] + box.tool_defs() + (WEB_TOOLS if web else [])
     system = box.system_prompt(workspace, web)
     messages: list = [{"role": "user", "content": task}]
     say(f"Agent: Claude {MODEL} (effort {EFFORT}) · workspace: {workspace}\nTask:\n{task}\n")
@@ -412,17 +441,21 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
             say()
 
             messages.append({"role": "assistant", "content": response.content})
+            said = "\n\n".join(b.text for b in response.content if b.type == "text" and b.text.strip())
+            if response.stop_reason not in ("end_turn", "refusal"):
+                events.emit("message", said)  # what Claude says comes before the steps it then takes
             for block in response.content:  # web tools run on Anthropic's side; just log them
                 if block.type == "server_tool_use":
                     target = block.input.get("query") or block.input.get("url") or ""
                     say(f"🌐 {block.name}: {target}")
+                    events.emit("step", describe_step(block.name, block.input) or "")
                 elif block.type == "web_fetch_tool_result" and getattr(block.content, "type", "") == "web_fetch_tool_error":
                     say(f"  ✖ could not fetch page ({getattr(block.content, 'error_code', 'error')})")
 
             if response.stop_reason == "refusal":
-                say("✖ The model declined this task.")
-                return 1
+                return fail("The AI declined this task.")
             if response.stop_reason == "end_turn":
+                events.emit("report", said or "Finished.")
                 say(f"✔ Agent finished after {turn} turn(s).")
                 return 0
             if response.stop_reason == "pause_turn":
@@ -443,13 +476,13 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
                     results.append({"type": "tool_result", "tool_use_id": block.id,
                                     "content": f"Error: {e}", "is_error": True})
             if not results:
-                say(f"✖ Unexpected stop reason: {response.stop_reason}")
-                return 1
+                return fail("The AI stopped unexpectedly.", f"Unexpected stop reason: {response.stop_reason}")
             messages.append({"role": "user", "content": results})
 
-        say(f"✖ Stopped: reached the limit of {max_turns} turns.")
-        return 1
+        return fail(f"Stopped after {max_turns} steps without finishing. Try a smaller task, or run it again.",
+                    f"Stopped: reached the limit of {max_turns} turns.")
     except anthropic.AuthenticationError:
+        events.emit("error", "Anthropic didn't accept your API key. Make a new key and put it in your .env file.")
         say("✖ Anthropic rejected the API key (it's wrong, incomplete, or was deleted).")
         if os.environ.get("ANTHROPIC_API_KEY"):
             say("  " + key_hint("ANTHROPIC_API_KEY", "sk-ant-"))
@@ -458,12 +491,16 @@ def run_agent(task: str, workspace: Path, max_turns: int = 60, client=None, out=
         return 1
     except anthropic.APIStatusError as e:
         say(f"✖ API error {e.status_code}: {e.message}")
+        events.emit("error", "Anthropic's service returned an error"
+                    + (" - your account may be out of credit." if "credit" in str(e.message).lower() else ".")
+                    + " Show technical details for more.")
         if web and e.status_code == 400 and "web_" in str(e.message):
             say("  Web search/fetch may be turned off for your Anthropic organization. Turn it on in the "
                 "Claude Console (Settings → Privacy), or set TASKRUNNER_AGENT_WEB=0 to run agents without it.")
         return 1
     except anthropic.APIConnectionError as e:
         say(f"✖ Could not reach the Anthropic API: {e}")
+        events.emit("error", "Couldn't reach Anthropic. Check your internet connection and try again.")
         return 1
     finally:
         box.close()
@@ -499,29 +536,23 @@ def main(argv=None):
     p.add_argument("--workspace", required=True, type=Path)
     p.add_argument("--task-file", required=True, type=Path)
     p.add_argument("--max-turns", type=int, default=60)
-    p.add_argument("--provider", choices=["claude", "openai"], default="claude")
-    p.add_argument("--model", help="OpenAI model name (provider openai)")
     a = p.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):  # logs are UTF-8 on every OS (Windows defaults to a code page)
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     task = a.task_file.read_text(encoding="utf-8")
-    for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
-        clean_key(name)
-
-    if a.provider == "openai":
-        if not os.environ.get("OPENAI_API_KEY"):
-            print("✖ No OpenAI API key found. Put OPENAI_API_KEY=sk-... in the .env file in the app "
-                  "folder (or set it where the server runs), restart the app, then retry this job.", flush=True)
-            sys.exit(1)
-        from .agent_openai import run_agent_openai
-        sys.exit(run_agent_openai(task, a.workspace.resolve(), a.max_turns, model=a.model))
+    clean_key("ANTHROPIC_API_KEY")
+    folder = a.task_file.parent
+    events = Events(folder / "events.jsonl")
+    asker = Asker(folder, events)
 
     if not any(os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")) \
             and not Path.home().joinpath(".config/anthropic").exists():
         print("✖ No Anthropic credentials found. Set ANTHROPIC_API_KEY in the environment "
               "where the task runner server runs, then retry this job.", flush=True)
+        events.emit("error", "No Anthropic API key found. Add ANTHROPIC_API_KEY=... to your .env file, "
+                             "restart the app, then run this again.")
         sys.exit(1)
-    sys.exit(run_agent(task, a.workspace.resolve(), a.max_turns))
+    sys.exit(run_agent(task, a.workspace.resolve(), a.max_turns, events=events, asker=asker))
 
 
 if __name__ == "__main__":

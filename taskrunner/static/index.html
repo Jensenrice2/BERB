@@ -7,149 +7,139 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png"><!-- used by Safari's "Add to Dock" on macOS -->
-<meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0f1318" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121416" media="(prefers-color-scheme: dark)">
 <style>
   :root {
-    --bg: #f5f6f8; --panel: #ffffff; --sunken: #f0f2f5; --text: #1b2230; --muted: #687282;
-    --faint: #98a0ad; --border: #e3e6eb; --accent: #2f6fde; --accent-soft: #e8f0fd;
-    --ok: #1c8a4a; --ok-soft: #e6f4ec; --bad: #c63a2f; --bad-soft: #fbecea;
-    --warn: #a86a12; --warn-soft: #fbf1e1; --run: #2f6fde; --run-soft: #e8f0fd;
-    --claude: #c96442; --openai: #10a37f;
-    --shadow: 0 1px 2px rgba(16, 24, 40, .05);
+    --bg: #f6f6f4; --panel: #ffffff; --soft: #f1f1ee; --text: #24272b; --muted: #6f747b; --faint: #a3a7ad;
+    --line: #e7e7e3; --accent: #3a6fd8; --accent-soft: #eaf0fc;
+    --ok: #2b8a57; --ok-soft: #e9f5ee; --bad: #c0463a; --bad-soft: #fbeeec;
+    --ask: #9a6a0f; --ask-soft: #fdf5e3; --ask-line: #f0d9a4;
+    --shadow: 0 1px 3px rgba(20, 20, 20, .05);
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0f1318; --panel: #161b22; --sunken: #11161c; --text: #e6e9ee; --muted: #929cab;
-      --faint: #6b7482; --border: #262d37; --accent: #5b8ff0; --accent-soft: #1b2a45;
-      --ok: #45bf78; --ok-soft: #15301f; --bad: #ea6c61; --bad-soft: #3a1b19;
-      --warn: #e0a640; --warn-soft: #36290f; --run: #5b8ff0; --run-soft: #1b2a45;
-      --claude: #e08a6a; --openai: #3cc29d; --shadow: none;
+      --bg: #121416; --panel: #1a1d20; --soft: #212428; --text: #e3e5e8; --muted: #9aa0a8; --faint: #6c727a;
+      --line: #2a2e33; --accent: #7aa2f0; --accent-soft: #1f2b40;
+      --ok: #5cc28a; --ok-soft: #17291f; --bad: #ee7d72; --bad-soft: #351e1c;
+      --ask: #e8b552; --ask-soft: #2e2512; --ask-line: #5a4519; --shadow: none;
     }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
-         font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+         font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
   button, input, textarea, select { font: inherit; color: inherit; }
+  a { color: var(--accent); }
 
-  /* header */
-  header { position: sticky; top: 0; z-index: 5;
-           display: flex; align-items: center; gap: 14px; padding: 12px 24px; flex-wrap: wrap;
-           border-bottom: 1px solid var(--border); background: var(--panel); }
-  header h1 { margin: 0; font-size: 16px; font-weight: 650; display: flex; align-items: center; gap: 9px; }
-  header h1 img { width: 28px; height: 28px; border-radius: 7px; }
-  #stats { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; font-size: 12.5px; }
-  .chip { padding: 2px 9px; border-radius: 999px; background: var(--sunken); color: var(--muted); white-space: nowrap; }
-  .chip.running { background: var(--run-soft); color: var(--run); }
-  .chip.failed { background: var(--bad-soft); color: var(--bad); }
-  .chip.offline { background: var(--bad-soft); color: var(--bad); }
+  header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 14px;
+           padding: 12px 28px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: .02em; display: flex; align-items: center; gap: 10px; }
+  header h1 img { width: 30px; height: 30px; border-radius: 8px; }
+  #stats { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+  .chip { padding: 2px 10px; border-radius: 999px; background: var(--soft); color: var(--muted); white-space: nowrap; }
+  .chip.on { background: var(--accent-soft); color: var(--accent); }
+  .chip.ask { background: var(--ask-soft); color: var(--ask); }
+  .chip.bad { background: var(--bad-soft); color: var(--bad); }
   #install { display: none; }
 
-  /* layout */
-  main { display: grid; grid-template-columns: minmax(340px, 420px) 1fr; gap: 20px;
-         padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+  main { display: grid; grid-template-columns: minmax(320px, 400px) minmax(0, 1fr); gap: 24px;
+         padding: 24px 28px; max-width: 1360px; margin: 0 auto; }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 16px; } }
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-           box-shadow: var(--shadow); min-width: 0; }
-  .side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+  .side { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+  .card { background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); border: 1px solid var(--line); min-width: 0; }
+  h2.title { margin: 0; font-size: 16px; font-weight: 650; }
 
-  /* new task form */
-  form { padding: 16px; display: grid; gap: 10px; }
-  .form-title { margin: 0; font-size: 15px; font-weight: 650; }
-  .seg { display: inline-flex; padding: 3px; gap: 3px; background: var(--sunken); border-radius: 9px; }
-  .seg button { border: 0; background: transparent; padding: 5px 14px; border-radius: 7px; cursor: pointer;
-                color: var(--muted); font-weight: 550; display: inline-flex; align-items: center; gap: 7px; }
-  .seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
-  .dot.claude { background: var(--claude); } .dot.openai { background: var(--openai); }
-  .dot.shell { background: var(--faint); }
-  textarea, input, select { width: 100%; padding: 9px 11px; border: 1px solid var(--border);
-                            border-radius: 8px; background: var(--panel); }
-  textarea { resize: vertical; min-height: 96px; line-height: 1.45; }
-  textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
-  .hint { margin: -2px 0 0; color: var(--muted); font-size: 12.5px; }
-  .field { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
-  .field[hidden] { display: none; }
-  details.more { font-size: 13px; }
-  details.more summary { cursor: pointer; color: var(--muted); user-select: none; width: max-content; }
-  details.more summary:hover { color: var(--text); }
-  details.more .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  /* new task */
+  form { padding: 20px; display: grid; gap: 12px; }
+  textarea, input { width: 100%; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); }
+  textarea { min-height: 110px; resize: vertical; }
+  textarea:focus, input:focus { outline: none; border-color: var(--accent); background: var(--panel); }
+  .hint { margin: 0; color: var(--muted); font-size: 13px; }
+  details.more { font-size: 13.5px; }
+  details.more summary { cursor: pointer; color: var(--muted); width: max-content; }
+  details.more .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  details.more label { display: grid; gap: 4px; color: var(--muted); font-size: 12.5px; }
   details.more .wide { grid-column: 1 / -1; }
-  .btn { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel);
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .btn { padding: 8px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel);
          cursor: pointer; font-weight: 550; }
-  .btn:hover { background: var(--sunken); }
+  .btn:hover { background: var(--soft); }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .btn.primary:hover { filter: brightness(1.06); }
+  .btn.primary:hover { filter: brightness(1.07); }
+  .btn.quiet { border-color: transparent; color: var(--muted); }
   .btn.danger { color: var(--bad); }
-  .submit-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .kbd { color: var(--faint); font-size: 12px; }
+  .kbd { color: var(--faint); font-size: 12.5px; }
 
   /* task list */
-  .list-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px 8px; }
-  .list-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
-  .list-head select { width: auto; padding: 4px 8px; font-size: 12.5px; }
-  ul#jobs { list-style: none; margin: 0; padding: 0 8px 8px; max-height: 52vh; overflow: auto; }
-  ul#jobs li[data-id] { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 9px 10px;
-                        border-radius: 8px; cursor: pointer; }
-  ul#jobs li[data-id]:hover { background: var(--sunken); }
+  .list-head { padding: 16px 20px 8px; display: flex; justify-content: space-between; align-items: center; }
+  .list-head select { width: auto; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line);
+                      background: var(--panel); font-size: 13px; }
+  ul#jobs { list-style: none; margin: 0; padding: 0 10px 10px; max-height: 56vh; overflow: auto; }
+  ul#jobs li[data-id] { padding: 11px 12px; border-radius: 10px; cursor: pointer; display: grid; gap: 4px; }
+  ul#jobs li[data-id]:hover { background: var(--soft); }
   ul#jobs li.sel { background: var(--accent-soft); }
-  .jname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
-  .jmeta { grid-column: 1; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px;
-           white-space: nowrap; overflow: hidden; }
-  ul#jobs .pill { grid-row: 1 / span 2; grid-column: 2; align-self: center; }
-  .pill { font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
-  .s-queued { background: var(--sunken); color: var(--muted); }
-  .s-running { background: var(--run-soft); color: var(--run); }
+  .jtext { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+           word-break: break-word; }
+  .jmeta { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; flex-wrap: wrap; }
+  .pill { font-size: 12px; font-weight: 600; padding: 1px 9px; border-radius: 999px; white-space: nowrap; }
+  .s-queued { background: var(--soft); color: var(--muted); }
+  .s-running { background: var(--accent-soft); color: var(--accent); }
   .s-succeeded { background: var(--ok-soft); color: var(--ok); }
   .s-failed, .s-timed_out { background: var(--bad-soft); color: var(--bad); }
-  .s-cancelled { background: var(--warn-soft); color: var(--warn); }
-  .s-running::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px;
-                       border-radius: 50%; background: currentColor; vertical-align: 1px; animation: pulse 1.2s infinite; }
-  @keyframes pulse { 50% { opacity: .25; } }
-  @media (prefers-reduced-motion: reduce) { .s-running::before { animation: none; } }
+  .s-cancelled { background: var(--soft); color: var(--muted); }
+  .s-ask { background: var(--ask-soft); color: var(--ask); }
   .empty { color: var(--muted); padding: 24px 16px; text-align: center; }
 
-  /* task details */
-  #detail { padding: 20px; display: flex; flex-direction: column; gap: 14px; min-height: 60vh; }
-  .d-top { display: flex; align-items: flex-start; gap: 12px; }
-  .d-top h2 { margin: 0; font-size: 18px; font-weight: 650; flex: 1; min-width: 0; word-break: break-word; }
-  .d-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; color: var(--muted); font-size: 12.5px; }
-  .d-meta span { display: inline-flex; align-items: center; gap: 6px; }
-  .task { margin: 0; padding: 10px 12px; background: var(--sunken); border-radius: 8px; white-space: pre-wrap;
-          word-break: break-word; max-height: 130px; overflow: auto; }
-  .task.cmd { font-family: var(--mono); font-size: 12.5px; }
-  #notice:empty, #files:empty { display: none; }
-  .notice { padding: 9px 12px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); font-size: 13px; }
-  .notice.warn { background: var(--warn-soft); color: var(--warn); }
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-  .section-title { margin: 0 0 6px; font-size: 13px; font-weight: 650; color: var(--muted);
-                   display: flex; align-items: center; gap: 8px; }
-  .section-title .link { font-weight: 500; font-size: 12px; color: var(--accent); background: none; border: 0;
-                         padding: 0; cursor: pointer; }
-  #files ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-  #files a { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 7px;
-             background: var(--sunken); color: var(--text); text-decoration: none; font-size: 13px; max-width: 100%; }
-  #files a:hover { background: var(--accent-soft); color: var(--accent); }
-  #files a .sz { color: var(--faint); font-size: 11.5px; }
-  #files .none { color: var(--faint); font-size: 13px; }
-  .log-wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  #log { flex: 1; min-height: 320px; max-height: 62vh; overflow: auto; margin: 0; padding: 12px 14px;
-         background: var(--sunken); border-radius: 8px; font: 12.5px/1.55 var(--mono);
-         white-space: pre-wrap; word-break: break-word; }
-  #log .l-sep { color: var(--faint); font-size: 11.5px; }
-  #log .l-turn { color: var(--faint); font-size: 11.5px; display: block; margin-top: 6px; }
-  #log .l-act { color: var(--accent); }
-  #log .l-think { color: var(--muted); font-style: italic; }
-  #log .l-err { color: var(--bad); font-weight: 600; }
-  #log .l-ok { color: var(--ok); font-weight: 600; }
+  /* details */
+  #detail { padding: 26px 28px; display: flex; flex-direction: column; gap: 18px; min-height: 70vh; }
+  .label { margin: 0 0 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .asked { margin: 0; font-size: 17px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+  .asked.cmd { font: 14px/1.5 var(--mono); }
+  #ask:empty, #outcome:empty, #files:empty, #working:empty { display: none; }
+  .status-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 13.5px; }
+  .status-row .actions { margin-left: auto; display: flex; gap: 8px; }
+  .box { border-radius: 12px; padding: 16px 18px; }
+  .box.ask { background: var(--ask-soft); border: 1px solid var(--ask-line); }
+  .box.ask .q { margin: 2px 0 12px; font-size: 16px; font-weight: 550; }
+  .box.ask textarea { min-height: 70px; background: var(--panel); }
+  .box.ask .row { margin-top: 10px; justify-content: flex-start; }
+  .box.result { background: var(--ok-soft); }
+  .box.error { background: var(--bad-soft); color: var(--bad); }
+  .box .label { color: inherit; opacity: .8; }
+  .md p { margin: 0 0 .6em; } .md p:last-child { margin-bottom: 0; }
+  .md ul, .md ol { margin: .2em 0 .6em; padding-left: 1.3em; }
+  .md code { font: 13px var(--mono); background: rgba(127,127,127,.12); padding: 1px 5px; border-radius: 5px; }
+  .files { display: flex; flex-wrap: wrap; gap: 8px; }
+  .files a { display: inline-flex; gap: 8px; align-items: center; padding: 6px 12px; border-radius: 9px; background: var(--soft);
+             color: var(--text); text-decoration: none; font-size: 14px; }
+  .files a:hover { background: var(--accent-soft); color: var(--accent); }
+  .files .sz { color: var(--faint); font-size: 12px; }
 
-  /* welcome (nothing selected) */
-  .welcome { margin: auto; max-width: 520px; text-align: center; color: var(--muted); padding: 30px 10px; }
-  .welcome h2 { color: var(--text); font-size: 18px; margin: 0 0 6px; }
-  .examples { display: grid; gap: 8px; margin-top: 18px; text-align: left; }
-  .examples button { text-align: left; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
-                     background: var(--panel); cursor: pointer; color: var(--text); }
+  /* activity feed */
+  ol.feed { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+  .feed li { display: grid; grid-template-columns: 26px 1fr; gap: 6px; padding: 5px 0; }
+  .feed .ic { text-align: center; }
+  .feed .step { color: var(--muted); font-size: 14px; }
+  .feed .msg .body { background: var(--soft); border-radius: 12px; padding: 9px 13px; }
+  .feed .you .body { background: var(--accent-soft); border-radius: 12px; padding: 9px 13px; }
+  .feed .q .body { color: var(--ask); font-weight: 550; }
+  .feed .err .body { color: var(--bad); }
+  .feed .who { display: block; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+  .working { color: var(--muted); font-size: 14px; display: flex; align-items: center; gap: 8px; padding-left: 4px; }
+  .working::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  @media (prefers-reduced-motion: reduce) { .working::before { animation: none; } }
+  .tech { margin-top: 4px; }
+  #log { margin: 8px 0 0; max-height: 50vh; overflow: auto; padding: 12px 14px; background: var(--soft); border-radius: 10px;
+         font: 12.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; color: var(--muted); }
+
+  .welcome { margin: auto; max-width: 540px; text-align: center; color: var(--muted); }
+  .welcome img { width: 64px; height: 64px; border-radius: 16px; margin-bottom: 10px; }
+  .welcome h2 { color: var(--text); margin: 0 0 6px; font-size: 20px; }
+  .examples { display: grid; gap: 10px; margin-top: 20px; text-align: left; }
+  .examples button { text-align: left; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line);
+                     background: var(--panel); cursor: pointer; }
   .examples button:hover { border-color: var(--accent); background: var(--accent-soft); }
 </style>
 </head>
@@ -161,80 +151,60 @@
 </header>
 <main>
   <div class="side">
-    <section class="panel">
+    <section class="card">
       <form id="new">
-        <div class="submit-row">
-          <h2 class="form-title">New task</h2>
-          <div class="seg" role="tablist" aria-label="Which AI does the work">
-            <button type="button" role="tab" data-provider="claude" class="on"><span class="dot claude"></span>Claude</button>
-            <button type="button" role="tab" data-provider="openai"><span class="dot openai"></span>OpenAI</button>
-          </div>
-        </div>
-        <textarea id="command" rows="4" required aria-label="What should the AI do?"
-          placeholder="What should the AI do? Describe it in plain English."></textarea>
-        <p class="hint" id="hint"></p>
-        <label class="field" id="modelRow" hidden>OpenAI model
-          <input id="model" placeholder="gpt-4o" autocomplete="off" spellcheck="false">
-        </label>
+        <h2 class="title">New task</h2>
+        <textarea id="command" required aria-label="What do you want done?"
+          placeholder="What do you want done? Describe it like you'd tell a person."></textarea>
+        <p class="hint">Claude works on it in the background and asks you if it needs anything.</p>
         <details class="more">
           <summary>More options</summary>
           <div class="grid">
-            <label class="field">Name <input id="name" placeholder="Made from the task"></label>
-            <label class="field">Time limit (minutes) <input id="timeout" type="number" min="1" step="1" placeholder="None"></label>
-            <label class="field wide">Folder to work in <input id="cwd" placeholder="A new folder for each task"></label>
+            <label>Name <input id="name" placeholder="Made from the task"></label>
+            <label>Time limit (minutes) <input id="timeout" type="number" min="1" step="1" placeholder="None"></label>
+            <label class="wide">Folder to work in <input id="cwd" placeholder="A new folder for each task"></label>
           </div>
         </details>
-        <div class="submit-row">
+        <div class="row">
           <span class="kbd">Ctrl + Enter</span>
           <button class="btn primary" type="submit">Start task</button>
         </div>
       </form>
     </section>
-    <section class="panel">
+    <section class="card">
       <div class="list-head">
-        <h2>Tasks</h2>
+        <h2 class="title">Tasks</h2>
         <select id="filter" aria-label="Show">
-          <option value="">All</option><option value="running">Running</option><option value="queued">Waiting</option>
-          <option value="succeeded">Done</option><option value="failed">Failed</option>
-          <option value="timed_out">Timed out</option><option value="cancelled">Stopped</option>
+          <option value="">All</option><option value="running">Working</option><option value="queued">Waiting</option>
+          <option value="succeeded">Done</option><option value="failed">Didn't finish</option>
+          <option value="cancelled">Stopped</option>
         </select>
       </div>
       <ul id="jobs"></ul>
     </section>
   </div>
-  <section class="panel" id="detail"></section>
+  <section class="card" id="detail"></section>
 </main>
 <script>
 const $ = s => document.querySelector(s);
-let selected = null, logOffset = 0, logTimer = null, filesSig = '', logTail = '', jobsSig = '', lastBlank = false;
-let lastErr = '', current = null;  // the selected task, and the last error line seen in its log
-let provider = 'claude', openaiDefault = 'gpt-4o';
-
-const STATUS = { queued: 'Waiting', running: 'Running', succeeded: 'Done', failed: 'Failed',
-                 timed_out: 'Timed out', cancelled: 'Stopped' };
-const HINT = {
-  claude: 'Claude can search the web, use websites, open tabs and work with files.',
-  openai: 'OpenAI can use websites, open tabs and work with files. Needs OPENAI_API_KEY in your .env file.',
-};
+const STATUS = { queued: 'Waiting to start', running: 'Working', succeeded: 'Done', failed: "Didn't finish",
+                 timed_out: 'Ran out of time', cancelled: 'Stopped' };
 const EXAMPLES = [
   "Find this weekend's weather forecast for Chicago and write it to weather.md",
   "Go to wikipedia.org, search for 'Golden Gate Bridge' and save the first paragraph to bridge.txt",
-  'Search for 3 good beginner Python courses and open them in tabs',
-  'Make a folder called notes with a to-do list file inside',
+  'Find 3 good beginner Python courses and open them in tabs',
+  "Help me plan a dinner menu for 6 people. Ask me about allergies first.",
 ];
+let answered = new Set();  // questions already answered here, while Claude picks the answer up
+let selected = null, jobsSig = '', feedNext = 0, feedTimer = null, current = null, logOffset = 0, showTech = false;
 
-const store = {  // remembers the last choices on this computer; harmless if the browser blocks it
-  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
-};
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const pill = s => `<span class="pill s-${s}">${STATUS[s] || s}</span>`;
-const aiName = j => j.kind !== 'agent' ? 'Shell' : j.provider === 'openai' ? 'OpenAI ' + (j.model || openaiDefault) : 'Claude';
-const aiDot = j => `<span class="dot ${j.kind !== 'agent' ? 'shell' : j.provider === 'openai' ? 'openai' : 'claude'}"></span>`;
+const pill = j => j.question ? '<span class="pill s-ask">Needs your answer</span>'
+                             : `<span class="pill s-${j.status}">${STATUS[j.status] || j.status}</span>`;
 function took(j) {
   if (!j.started_at) return '';
   const s = Math.round((j.finished_at || Date.now() / 1000) - j.started_at);
-  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m`;
+  return s < 60 ? `${s} sec` : s < 3600 ? `${Math.floor(s / 60)} min ${s % 60} sec` : `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min`;
 }
 function ago(t) {
   const s = Date.now() / 1000 - t;
@@ -245,109 +215,124 @@ function ago(t) {
 }
 const clock = t => new Date(t * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 
+// A small, safe Markdown subset for Claude's messages: paragraphs, lists, **bold**, `code`, links.
+function md(text) {
+  const inline = s => esc(s)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+  const out = []; let list = null, para = [];
+  const flushPara = () => { if (para.length) { out.push(`<p>${para.join('<br>')}</p>`); para = []; } };
+  const flushList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  for (const raw of String(text).split('\n')) {
+    const line = raw.trimEnd();
+    const m = line.match(/^\s*(?:([-*•])|(\d+)[.)])\s+(.*)$/);
+    if (m) {
+      flushPara();
+      const tag = m[1] ? 'ul' : 'ol';
+      if (list !== tag) { flushList(); out.push(`<${tag}>`); list = tag; }
+      out.push(`<li>${inline(m[3])}</li>`);
+      continue;
+    }
+    flushList();
+    if (!line.trim()) { flushPara(); continue; }
+    const h = line.match(/^#{1,6}\s+(.*)$/);
+    if (h) { flushPara(); out.push(`<p><strong>${inline(h[1])}</strong></p>`); continue; }
+    para.push(inline(line));
+  }
+  flushPara(); flushList();
+  return out.join('');
+}
+
 async function api(path, opts = {}) {
   const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || r.statusText); }
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(typeof e.detail === 'string' ? e.detail : r.statusText); }
   return r.status === 204 ? null : r.json();
 }
 
-// ---------------------------------------------------------------- AI choice
-function setProvider(p) {
-  provider = p;
-  document.querySelectorAll('.seg button').forEach(b => {
-    const on = b.dataset.provider === p; b.classList.toggle('on', on); b.setAttribute('aria-selected', on);
-  });
-  $('#hint').textContent = HINT[p];
-  $('#modelRow').hidden = p !== 'openai';
-  store.set('provider', p);
-}
-document.querySelector('.seg').addEventListener('click', e => {
-  const b = e.target.closest('button[data-provider]'); if (b) setProvider(b.dataset.provider);
-});
-$('#model').value = store.get('openaiModel') || '';
-setProvider(store.get('provider') === 'openai' ? 'openai' : 'claude');
-
-// ---------------------------------------------------------------- list + header
+// ---------------------------------------------------------------- header + list
 async function refresh() {
   try {
-    const [jobs, st] = await Promise.all([api('/api/jobs?status=' + $('#filter').value), api('/api/status')]);
-    if (st.openai_model && st.openai_model !== openaiDefault) {
-      openaiDefault = st.openai_model; $('#model').placeholder = openaiDefault;
-    }
-    const c = st.counts, chips = [];
-    if (c.running) chips.push(`<span class="chip running">${c.running} running</span>`);
-    if (c.queued) chips.push(`<span class="chip">${c.queued} waiting</span>`);
-    if (c.succeeded) chips.push(`<span class="chip">${c.succeeded} done</span>`);
-    const bad = (c.failed || 0) + (c.timed_out || 0);
-    if (bad) chips.push(`<span class="chip failed">${bad} failed</span>`);
-    $('#stats').innerHTML = chips.join('') || '<span class="chip">No tasks yet</span>';
+    const jobs = await api('/api/jobs?status=' + $('#filter').value);
+    const all = $('#filter').value ? await api('/api/jobs') : jobs;
+    const n = s => all.filter(j => j.status === s).length;
+    const asking = all.filter(j => j.question).length;
+    const chips = [];
+    if (asking) chips.push(`<span class="chip ask">${asking} need${asking === 1 ? 's' : ''} your answer</span>`);
+    if (n('running') - asking > 0) chips.push(`<span class="chip on">${n('running') - asking} working</span>`);
+    if (n('queued')) chips.push(`<span class="chip">${n('queued')} waiting</span>`);
+    if (n('succeeded')) chips.push(`<span class="chip">${n('succeeded')} done</span>`);
+    if (n('failed') + n('timed_out')) chips.push(`<span class="chip bad">${n('failed') + n('timed_out')} didn't finish</span>`);
+    $('#stats').innerHTML = chips.join('');
 
     const html = jobs.length ? jobs.map(j => `
       <li data-id="${j.id}" class="${j.id === selected ? 'sel' : ''}">
-        <span class="jname" title="${esc(j.name)}">${esc(j.name)}</span>
-        ${pill(j.status)}
-        <span class="jmeta">${aiDot(j)}${esc(aiName(j))} · ${ago(j.created_at)}${j.started_at ? ' · ' + took(j) : ''}</span>
+        <span class="jtext">${esc(j.command)}</span>
+        <span class="jmeta">${pill(j)}<span>${ago(j.created_at)}</span>${j.kind !== 'agent' ? '<span>· command</span>' : ''}</span>
       </li>`).join('')
-      : `<li class="empty">${$('#filter').value ? 'No tasks with this status.' : 'No tasks yet. Describe one above.'}</li>`;
+      : `<li class="empty">${$('#filter').value ? 'Nothing here.' : 'No tasks yet. Describe one above.'}</li>`;
     if (html !== jobsSig) { $('#jobs').innerHTML = html; jobsSig = html; }
-    if (selected) renderDetail(jobs.find(j => j.id === selected) || await api('/api/jobs/' + selected));
+    if (selected) {
+      const j = all.find(x => x.id === selected) || await api('/api/jobs/' + selected).catch(() => null);
+      if (j) renderDetail(j);
+    }
   } catch (e) {
-    $('#stats').innerHTML = `<span class="chip offline">${e instanceof TypeError
-      ? 'Not running. Start the app (start-windows or F5 in VS Code)' : esc('Error: ' + e.message)}</span>`;
+    $('#stats').innerHTML = `<span class="chip bad">${e instanceof TypeError
+      ? 'B.E.R.B isn’t running. Start it (start-windows, or F5 in VS Code).' : esc(e.message)}</span>`;
   }
 }
 
 // ---------------------------------------------------------------- details
-function friendlyError(j) {
-  if (j.status === 'cancelled') return ['warn', 'You stopped this task.'];
-  if (j.status === 'timed_out') return ['', `Stopped because it went over its time limit (${Math.round(j.timeout / 60) || 1} min).`];
-  if (j.status === 'failed') {
-    const why = lastErr || (j.error ? j.error.charAt(0).toUpperCase() + j.error.slice(1) + '.' : '');
-    return ['', why || 'Something went wrong. See the activity below for details.'];
-  }
-  return null;
+function shell() {
+  $('#detail').innerHTML = `
+    <div><p class="label">You asked</p><p class="asked" id="asked"></p></div>
+    <div class="status-row" id="status"></div>
+    <div id="ask"></div>
+    <div id="outcome"></div>
+    <div id="files"></div>
+    <div><p class="label">What Claude did</p><ol class="feed" id="feed"></ol><div id="working"></div></div>
+    <div class="tech"><button class="btn quiet" type="button" data-act="tech">Show technical details</button><pre id="log" hidden></pre></div>`;
 }
 
 function renderDetail(j) {
-  const d = $('#detail');
-  if (!d.querySelector('#log')) {
-    d.innerHTML = `
-      <div class="d-top"><h2></h2><span id="dstatus"></span></div>
-      <div class="d-meta" id="info"></div>
-      <p class="task" id="jobtext"></p>
-      <div id="notice"></div>
-      <div class="actions"></div>
-      <div id="files"></div>
-      <div class="log-wrap"><p class="section-title">Activity</p><pre id="log" aria-live="off"></pre></div>`;
-  }
-  d.querySelector('h2').textContent = j.name;
-  $('#dstatus').innerHTML = pill(j.status);
-  const t = $('#jobtext');
-  t.className = j.kind === 'agent' ? 'task' : 'task cmd';
-  t.textContent = j.kind === 'agent' ? j.command : '$ ' + j.command;
-  $('#info').innerHTML = [
-    `<span>${aiDot(j)}${esc(aiName(j))}</span>`,
-    `<span>${j.started_at ? 'Started ' + clock(j.started_at) : 'Added ' + clock(j.created_at)}</span>`,
-    j.started_at ? `<span>${j.finished_at ? 'Took' : 'Running for'} ${took(j)}</span>` : '',
-    j.attempts > 1 ? `<span>Run ${j.attempts} times</span>` : '',
-  ].join('');
   current = j;
-  showNotice();
+  if (!$('#feed')) shell();
+  const asked = $('#asked');
+  asked.className = j.kind === 'agent' ? 'asked' : 'asked cmd';
+  asked.textContent = j.command;
+
+  const when = j.started_at ? `Started ${clock(j.started_at)}` : `Added ${clock(j.created_at)}`;
+  const dur = j.started_at ? (j.finished_at ? ` · took ${took(j)}` : ` · ${took(j)} so far`) : '';
   const active = j.status === 'queued' || j.status === 'running';
-  const acts = active ? `<button class="btn" data-act="cancel">Stop</button>`
-    : `<button class="btn" data-act="retry">Run again</button><button class="btn danger" data-act="delete">Delete</button>`;
-  const box = d.querySelector('.actions');
-  if (box.dataset.sig !== acts) { box.innerHTML = acts; box.dataset.sig = acts; }
+  const acts = active ? '<button class="btn" data-act="cancel">Stop</button>'
+    : '<button class="btn" data-act="retry">Run again</button><button class="btn danger" data-act="delete">Delete</button>';
+  const status = `${pill(j)}<span>${when}${dur}</span><span class="actions">${acts}</span>`;
+  if ($('#status').dataset.sig !== status) { $('#status').innerHTML = status; $('#status').dataset.sig = status; }
+
+  // Claude's question, with a place to answer (kept while you type)
+  const ask = $('#ask');
+  const open = j.question && !answered.has(j.id + ':' + j.question);
+  if (open && ask.dataset.q !== j.question) {
+    ask.dataset.q = j.question;
+    const yesNo = /^(should|shall|can|may|do|does|is|are|would|will|ok|okay)\b|ok\?$|okay\?$/i.test(j.question.trim());
+    ask.innerHTML = `<div class="box ask"><p class="label">Claude needs your answer</p>
+      <p class="q">${esc(j.question)}</p>
+      <textarea id="answer" placeholder="Type your answer…"></textarea>
+      <div class="row">
+        <button class="btn primary" type="button" data-act="answer">Send answer</button>
+        ${yesNo ? '<button class="btn" type="button" data-quick="Yes">Yes</button><button class="btn" type="button" data-quick="No">No</button>' : ''}
+      </div></div>`;
+  } else if (!open && ask.dataset.q) {
+    ask.dataset.q = ''; ask.innerHTML = '';
+  }
+  $('#working').innerHTML = j.status === 'running' && !open
+    ? '<div class="working">Claude is working on it…</div>'
+    : j.status === 'queued' ? '<div class="working">Waiting for a free spot to start…</div>' : '';
   if (j.kind === 'agent') loadFiles(j.id); else $('#files').innerHTML = '';
 }
 
-function showNotice() {
-  const n = current && friendlyError(current), box = $('#notice');
-  if (!box) return;
-  const html = n ? `<div class="notice ${n[0]}">${esc(n[1])}</div>` : '';
-  if (box.innerHTML !== html) box.innerHTML = html;
-}
-
+let filesSig = '';
 async function loadFiles(id) {
   try {
     const r = await api(`/api/jobs/${id}/files`);
@@ -356,123 +341,157 @@ async function loadFiles(id) {
     if (sig === filesSig) return;
     filesSig = sig;
     const size = b => b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`;
-    $('#files').innerHTML = `
-      <p class="section-title">Files it made
-        <button class="link" type="button" data-copy="${esc(r.workspace)}" title="${esc(r.workspace)}">Copy folder path</button></p>` +
-      (r.files.length
-        ? '<ul>' + r.files.map(f => `<li><a target="_blank" title="${esc(f.path)}"
-            href="/api/jobs/${id}/files/${f.path.split('/').map(encodeURIComponent).join('/')}">📄 ${esc(f.path)}
-            <span class="sz">${size(f.size)}</span></a></li>`).join('') + '</ul>'
-        : '<span class="none">None yet</span>');
+    $('#files').innerHTML = !r.files.length ? '' : `<p class="label">Files Claude made
+        <button class="btn quiet" style="padding:0 6px;font-size:12px;text-transform:none;letter-spacing:0" type="button"
+          data-copy="${esc(r.workspace)}">Copy folder location</button></p>
+      <div class="files">${r.files.map(f => `<a target="_blank" title="Open ${esc(f.path)}"
+        href="/api/jobs/${id}/files/${f.path.split('/').map(encodeURIComponent).join('/')}">📄 ${esc(f.path)}
+        <span class="sz">${size(f.size)}</span></a>`).join('')}</div>`;
   } catch {}
 }
 
-// The log streams in pieces; colour each finished line by what it is.
-function lineClass(line) {
-  if (line.startsWith('---')) return 'l-sep';
-  if (line.startsWith('── turn')) return 'l-turn';
-  if (line.startsWith('✖') || line.startsWith('  ✖')) return 'l-err';
-  if (line.startsWith('✔')) return 'l-ok';
-  if (line.startsWith('💭')) return 'l-think';
-  if (/^(▶|🖱|🗂|🌐)/.test(line)) return 'l-act';
-  return '';
-}
-function appendLog(text) {
-  const pre = $('#log');
-  const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
-  const live = pre.querySelector('.live'); if (live) live.remove();
-  const parts = (logTail + text).split('\n');
-  logTail = parts.pop();  // last piece may be an unfinished line
-  const frag = document.createDocumentFragment();
-  for (const line of parts) {
-    const blank = !line.trim();
-    if (blank && lastBlank) continue;  // squeeze runs of empty lines
-    lastBlank = blank;
-    const span = document.createElement('span');
-    const cls = lineClass(line); if (cls) span.className = cls;
-    if (cls === 'l-err') lastErr = line.replace(/^\s*✖\s*/, '');
-    span.textContent = line + '\n';
-    frag.appendChild(span);
+const STEP_ICON = [[/^Looked at the page/, '👀'], [/^Searched/, '🔍'], [/^(Went to|Read|Went back)/, '🌐'], [/^Clicked/, '👆'], [/^Typed/, '⌨️'],
+  [/^(Saved|Edited|Looked at|Worked on)/, '📄'], [/^Opened/, '🗂️'], [/^(Chose|Ticked|Unticked)/, '☑️'],
+  [/^Ran a command/, '⚙️']];
+function feedItem(e) {
+  const li = document.createElement('li');
+  if (e.type === 'step') {
+    li.className = 'step';
+    li.innerHTML = `<span class="ic">${(STEP_ICON.find(([re]) => re.test(e.text)) || [0, '•'])[1]}</span><span>${esc(e.text)}</span>`;
+  } else if (e.type === 'message') {
+    li.className = 'msg'; li.innerHTML = `<span class="ic">💬</span><div class="body md">${md(e.text)}</div>`;
+  } else if (e.type === 'question') {
+    li.className = 'q'; li.innerHTML = `<span class="ic">❓</span><div class="body"><span class="who">Claude asked</span>${esc(e.text)}</div>`;
+  } else if (e.type === 'answer') {
+    li.className = 'you'; li.innerHTML = `<span class="ic">🙂</span><div class="body"><span class="who">You answered</span>${esc(e.text)}</div>`;
+  } else if (e.type === 'report') {
+    li.className = 'step'; li.innerHTML = '<span class="ic">✅</span><span>Finished and wrote the result above</span>';
+  } else if (e.type === 'error') {
+    li.className = 'err'; li.innerHTML = `<span class="ic">⚠️</span><div class="body">${esc(e.text)}</div>`;
   }
-  if (logTail) {
-    const span = document.createElement('span');
-    span.className = 'live ' + lineClass(logTail); span.textContent = logTail;
-    frag.appendChild(span);
-  }
-  pre.appendChild(frag);
-  if (atBottom) pre.scrollTop = pre.scrollHeight;
-  showNotice();
+  return li;
 }
 
-async function pollLog() {
+let report = null, lastError = null;
+function renderOutcome() {
+  const j = current, box = $('#outcome');
+  if (!j || !box) return;
+  let html = '';
+  if (report) html = `<div class="box result"><p class="label">Result</p><div class="md">${md(report)}</div></div>`;
+  else if (j.status === 'failed' || j.status === 'timed_out') {
+    const why = lastError || (j.status === 'timed_out' ? `It went over its time limit.` :
+      j.error ? j.error.charAt(0).toUpperCase() + j.error.slice(1) + '.' : 'Something went wrong. Show technical details for more.');
+    html = `<div class="box error"><p class="label">Didn't finish</p>${esc(why)}</div>`;
+  }
+  if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
+}
+
+async function pollFeed() {
   if (!selected) return;
   const id = selected;
   try {
-    const r = await api(`/api/jobs/${id}/logs?offset=${logOffset}`);
-    if (id !== selected || !$('#log')) return;
-    if (r.text) appendLog(r.text);
-    logOffset = r.next_offset;
+    const r = await api(`/api/jobs/${id}/events?after=${feedNext}`);
+    if (id !== selected || !$('#feed')) return;
+    const feed = $('#feed');
+    for (const e of r.events) {
+      if (e.type === 'report') report = e.text;
+      if (e.type === 'error') lastError = e.text;
+      feed.appendChild(feedItem(e));
+    }
+    feedNext = r.next;
+    if (current && current.kind !== 'agent' && !showTech) toggleTech(true);  // plain commands only have the log
+    renderOutcome();
+    if (showTech) await pollLog();
   } catch {}
+}
+
+async function pollLog() {
+  const id = selected;
+  try {
+    const r = await api(`/api/jobs/${id}/logs?offset=${logOffset}`);
+    if (id !== selected) return;
+    const pre = $('#log'), atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+    pre.textContent += r.text; logOffset = r.next_offset;
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
+  } catch {}
+}
+function toggleTech(on = !showTech) {
+  showTech = on;
+  $('#log').hidden = !on;
+  $('[data-act="tech"]').textContent = on ? 'Hide technical details' : 'Show technical details';
+  if (on) pollLog();
 }
 
 function showWelcome() {
   $('#detail').innerHTML = `<div class="welcome">
-    <h2>Give the AI something to do</h2>
-    <p>Describe a task on the left and press <b>Start task</b>. It runs in the background,
-       and you can watch it here. Try one of these:</p>
+    <img src="/static/icons/icon-192.png" alt="">
+    <h2>What can Claude do for you?</h2>
+    <p>Describe a task and press <b>Start task</b>. Claude works on it in the background, asks if it needs
+       anything, and writes up the result here. Try one of these:</p>
     <div class="examples">${EXAMPLES.map(x => `<button type="button" data-example="${esc(x)}">${esc(x)}</button>`).join('')}</div>
   </div>`;
 }
 
 async function select(id) {
-  selected = id; logOffset = 0; filesSig = ''; logTail = ''; lastBlank = false; lastErr = ''; current = null;
-  $('#detail').innerHTML = '';
-  clearInterval(logTimer);
+  selected = id; feedNext = 0; logOffset = 0; showTech = false; report = null; lastError = null; filesSig = ''; current = null;
+  clearInterval(feedTimer);
+  shell();
   jobsSig = '';
   await refresh();
-  await pollLog();
-  logTimer = setInterval(pollLog, 1000);
+  await pollFeed();
+  feedTimer = setInterval(pollFeed, 1000);
 }
 
 // ---------------------------------------------------------------- events
-$('#jobs').addEventListener('click', e => {
-  const li = e.target.closest('li[data-id]');
-  if (li) select(+li.dataset.id);
-});
+$('#jobs').addEventListener('click', e => { const li = e.target.closest('li[data-id]'); if (li) select(+li.dataset.id); });
+
+async function sendAnswer(text) {
+  text = (text || '').trim(); if (!text) return;
+  try {
+    await api(`/api/jobs/${selected}/answer`, { method: 'POST', body: JSON.stringify({ answer: text }) });
+    if (current?.question) answered.add(current.id + ':' + current.question);
+    $('#ask').dataset.q = ''; $('#ask').innerHTML = '';
+    refresh();
+  } catch (err) { alert(err.message); }
+}
+
 $('#detail').addEventListener('click', async e => {
   const ex = e.target.closest('[data-example]');
   if (ex) { $('#command').value = ex.dataset.example; $('#command').focus(); return; }
+  const quick = e.target.closest('[data-quick]');
+  if (quick) return sendAnswer(quick.dataset.quick);
   const cp = e.target.closest('[data-copy]');
   if (cp) {
     try { await navigator.clipboard.writeText(cp.dataset.copy); cp.textContent = 'Copied'; }
-    catch { prompt('Folder path:', cp.dataset.copy); }
-    setTimeout(() => { cp.textContent = 'Copy folder path'; }, 1500);
+    catch { prompt('Folder location:', cp.dataset.copy); }
+    setTimeout(() => { cp.textContent = 'Copy folder location'; }, 1500);
     return;
   }
   const act = e.target.closest('[data-act]')?.dataset.act;
   if (!act) return;
+  if (act === 'tech') return toggleTech();
+  if (act === 'answer') return sendAnswer($('#answer').value);
   try {
     if (act === 'delete') {
-      if (!confirm('Delete this task and its files list?')) return;
+      if (!confirm('Delete this task?')) return;
       await api(`/api/jobs/${selected}`, { method: 'DELETE' });
-      selected = null; clearInterval(logTimer); showWelcome();
+      selected = null; clearInterval(feedTimer); showWelcome();
     } else {
       await api(`/api/jobs/${selected}/${act}`, { method: 'POST' });
-      if (act === 'retry') { logOffset = 0; logTail = ''; lastBlank = false; lastErr = ''; $('#log').textContent = ''; }
+      if (act === 'retry') return select(selected);
     }
     refresh();
   } catch (err) { alert(err.message); }
 });
+$('#detail').addEventListener('keydown', e => {
+  if (e.target.id === 'answer' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) sendAnswer(e.target.value);
+});
+
 $('#new').addEventListener('submit', async e => {
   e.preventDefault();
   const text = $('#command').value.trim();
   if (!text) return;
-  const body = { kind: 'agent', task: text, provider };
-  if (provider === 'openai') {
-    const m = $('#model').value.trim();
-    if (m) body.model = m;
-    store.set('openaiModel', m);
-  }
+  const body = { kind: 'agent', task: text };
   if ($('#name').value.trim()) body.name = $('#name').value.trim();
   if ($('#cwd').value.trim()) body.cwd = $('#cwd').value.trim();
   if ($('#timeout').value) body.timeout = Math.round(+$('#timeout').value * 60);
@@ -482,20 +501,16 @@ $('#new').addEventListener('submit', async e => {
     select(j.id);
   } catch (err) { alert(err.message); }
 });
-$('#command').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('#new').requestSubmit();
-});
+$('#command').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('#new').requestSubmit(); });
 $('#filter').addEventListener('change', () => { jobsSig = ''; refresh(); });
 showWelcome();
 refresh();
-setInterval(refresh, 1500);
+setInterval(refresh, 2000);
 
 // Installable app: register the service worker, and offer an Install button where the browser supports it.
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 let installPrompt = null;
-window.addEventListener('beforeinstallprompt', e => {
-  e.preventDefault(); installPrompt = e; $('#install').style.display = 'inline-block';
-});
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; $('#install').style.display = 'inline-block'; });
 $('#install').addEventListener('click', async () => {
   if (!installPrompt) return;
   installPrompt.prompt(); await installPrompt.userChoice;

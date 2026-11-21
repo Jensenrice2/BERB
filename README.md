@@ -128,16 +128,12 @@ Interactive docs: `/docs`.
 - `TASKRUNNER_AGENT_MODEL`: the agent's model (default `claude-opus-5-5`)
 - `TASKRUNNER_AGENT_EFFORT`: `low` / `medium` / `high` / `xhigh` / `max` (default `high`). Lower is cheaper and faster.
 
-## Choosing the AI: Claude or OpenAI
+## What you see in the app
 
-The dashboard has two tabs, **🤖 Claude** and **🤖 OpenAI**. Both create an AI task with the same tools and safety rules: a shell, a file editor, opening tabs, and clicking and typing in websites.
-
-- **Claude** uses `ANTHROPIC_API_KEY`. It also gets Anthropic's built-in web search and page reading.
-- **OpenAI** uses `OPENAI_API_KEY` and the model typed in the **OpenAI model** box (default `gpt-4o`; change the default with `TASKRUNNER_OPENAI_MODEL`). It uses the Chat Completions API, so older models like `gpt-4o`, `gpt-4o-mini` or `gpt-4-turbo` work. It has no built-in web search; it visits sites with the browser tool instead. Models that can't view images still work: screenshots are replaced with a note.
-
-Put both keys in `.env` (see `.env.example`). From the command line: `python -m taskrunner.cli agent "..." --provider openai --model gpt-4o-mini`.
-
-Shell commands can no longer be created from the dashboard. They still work from the command line (`python -m taskrunner.cli add "..."`) and the API.
+- **You asked:** your request, as you typed it.
+- **Needs your answer:** Claude can stop and ask you something, such as a choice, a missing detail, or your OK before it buys, sends or deletes anything. The task shows a yellow badge and an answer box; Claude carries on as soon as you reply. If nobody answers within 30 minutes (`TASKRUNNER_ANSWER_TIMEOUT`, in seconds), it continues without the answer.
+- **Result:** Claude's report when it finishes, in plain language.
+- **What Claude did:** a plain-English feed, like "Searched the web for …", "Went to wikipedia.org", "Clicked “Search”" or "Saved weather.md". No code is shown. **Show technical details** reveals the full log, including every command and its output.
 
 ## How agent jobs work
 

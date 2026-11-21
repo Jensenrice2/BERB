@@ -13,8 +13,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     name        TEXT NOT NULL,
     kind        TEXT NOT NULL DEFAULT 'shell',   -- 'shell' | 'agent'
     command     TEXT NOT NULL,                   -- shell command, or the agent's task text
-    provider    TEXT,                            -- agent jobs: 'claude' | 'openai'
-    model       TEXT,                            -- agent jobs: OpenAI model name
+    provider    TEXT,                            -- unused (was a choice of AI)
+    model       TEXT,                            -- unused
     cwd         TEXT,
     timeout     REAL,
     status      TEXT NOT NULL DEFAULT 'queued',
@@ -55,7 +55,7 @@ class Store:
             cols = {r[1] for r in self._conn.execute("PRAGMA table_info(jobs)")}
             if "kind" not in cols:  # upgrade databases created before agent jobs existed
                 self._conn.execute("ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'shell'")
-            for col in ("provider", "model"):  # ... and before the AI provider choice
+            for col in ("provider", "model"):  # (unused columns, kept so old databases still load)
                 if col not in cols:
                     self._conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
             self._conn.commit()

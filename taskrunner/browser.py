@@ -121,6 +121,7 @@ class BrowserSession:
         self.executable_path = executable_path
         self._pw = self._context = self.page = None
         self._seen: set = set()  # tabs already known, to spot new ones
+        self.labels: dict[int, str] = {}  # element number -> label, for the activity feed
         self.events: list[str] = []  # dialogs dismissed, new tabs, etc. - reported with the next result
 
     # ------------------------------------------------------------ lifecycle
@@ -296,6 +297,7 @@ class BrowserSession:
         if self.events:
             lines += [f"Note: {e}" for e in self.events]
             self.events.clear()
+        self.labels = {e["ref"]: e["label"] for e in snap["elements"] if e.get("label")}
         lines.append(f"\nInteractive elements ({len(snap['elements'])}):")
         for e in snap["elements"]:
             line = f"[{e['ref']}] {e['kind']} \"{e['label']}\""

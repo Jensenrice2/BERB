@@ -133,6 +133,8 @@ class Runner:
     async def _spawn_agent(self, job: dict, out) -> asyncio.subprocess.Process:
         task_file = self.agent_dir / str(job["id"]) / "task.md"
         task_file.parent.mkdir(parents=True, exist_ok=True)
+        for name in ("events.jsonl", "question.json", "answer.json"):  # each run starts a fresh feed
+            (task_file.parent / name).unlink(missing_ok=True)
         task_file.write_text(job["command"], encoding="utf-8")
         workspace = self.workspace_for(job)
         workspace.mkdir(parents=True, exist_ok=True)
@@ -143,8 +145,6 @@ class Runner:
         return await asyncio.create_subprocess_exec(
             sys.executable, "-u", "-m", "taskrunner.agent",
             "--workspace", str(workspace), "--task-file", str(task_file),
-            "--provider", job.get("provider") or "claude",
-            *(["--model", job["model"]] if job.get("model") else []),
             cwd=workspace, env=env, stdout=out, stderr=asyncio.subprocess.STDOUT,
             stdin=asyncio.subprocess.DEVNULL, **oscompat.new_group_kwargs(),
         )
