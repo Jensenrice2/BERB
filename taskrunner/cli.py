@@ -134,6 +134,8 @@ def main(argv=None):
         for lnk in launcher.create_shortcuts():
             print(f"made {lnk}")
     elif args.cmd == "serve":
+        if not args.port:
+            launcher.replace_if_outdated(PORTS)  # an older copy left running: turn it off first
         if launcher.running_port(PORTS) and not args.port:
             # Already running (e.g. started from the icon): just show it rather than start a second copy.
             if args.open:

@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from . import oscompat
 from .activity import pending_question, read_events, write_answer
+from .launcher import APP_DIR, APP_VERSION
 from .runner import Runner
 from .store import Store
 from .vault import Vault, VaultUnavailable
@@ -177,7 +178,8 @@ def create_app(data_dir: Path = DATA_DIR, concurrency: int = CONCURRENCY, vault:
         for j in store.list(limit=10_000):
             counts[j["status"]] = counts.get(j["status"], 0) + 1
         return {"concurrency": concurrency, "running": runner.running, "counts": counts,
-                "shell": oscompat.SHELL_NAME}
+                "shell": oscompat.SHELL_NAME,
+                "version": APP_VERSION, "app_dir": str(APP_DIR)}
 
     def _folder(job_id: int) -> Path:
         return runner.agent_dir / str(job_id)

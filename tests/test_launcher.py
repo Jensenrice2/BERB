@@ -67,3 +67,33 @@ def test_windows_shortcuts(tmp_path):
     assert out[0].lower().endswith("pythonw.exe")  # no console window
     assert out[1] == "-m taskrunner.cli open"
     assert str(ICON).lower() in out[2].lower()
+
+
+@pytest.mark.skipif(running_port(PORTS) is not None, reason="a B.E.R.B is already running on this computer")
+def test_older_copy_still_running_is_replaced(tmp_path):
+    """The bug a user hit: an old copy kept running, so opening the new download showed the old app."""
+    from taskrunner.launcher import APP_VERSION, running_info
+    run = lambda env, *a: subprocess.run([sys.executable, "-m", "taskrunner.cli", *a], cwd=APP_DIR, env=env,
+                                         capture_output=True, text=True, timeout=120)
+    base = {**os.environ, "TASKRUNNER_DATA": str(tmp_path)}
+    old = run({**base, "TASKRUNNER_FAKE_VERSION": "old-version"}, "open", "--no-window")
+    assert old.returncode == 0, old.stdout + old.stderr
+    port = None
+    try:
+        info = running_info(PORTS)
+        assert info and info[1]["version"] == "old-version"
+        new = run(base, "open", "--no-window")
+        assert new.returncode == 0, new.stdout + new.stderr
+        info = running_info(PORTS)
+        assert info and info[1]["version"] == APP_VERSION and info[1]["app_dir"] == str(APP_DIR)
+        port = info[0]
+        again = run(base, "open", "--no-window")  # the same copy: left running, not restarted
+        assert again.returncode == 0 and running_info(PORTS)[1]["version"] == APP_VERSION
+    finally:
+        info = running_info(PORTS)
+        if info:
+            _post(info[0], "/api/quit")
+    end = time.time() + 20
+    while running_port(PORTS) is not None:
+        assert time.time() < end
+        time.sleep(0.3)

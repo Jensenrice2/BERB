@@ -18,6 +18,19 @@ import webbrowser
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent.parent   # the folder you downloaded (has .env, data/, .venv/)
+
+
+def _app_version() -> str:
+    """A fingerprint of this copy's code, so an older copy still running can be spotted and replaced."""
+    import hashlib
+    h = hashlib.sha256()
+    pkg = Path(__file__).resolve().parent
+    for f in sorted([*pkg.glob("*.py"), *(pkg / "static").glob("*.*")]):
+        h.update(f.name.encode()); h.update(f.read_bytes())
+    return h.hexdigest()[:12]
+
+
+APP_VERSION = os.environ.get("TASKRUNNER_FAKE_VERSION") or _app_version()  # (the override is for tests)
 ICON = Path(__file__).resolve().parent / "static" / "icons" / "berb.ico"
 
 
@@ -38,16 +51,69 @@ def load_dotenv(path: Path = APP_DIR / ".env") -> None:
             os.environ[key] = value
 
 
-def running_port(ports) -> int | None:
-    """The port B.E.R.B is answering on, if it's running (checks it really is B.E.R.B)."""
+def running_info(ports) -> tuple[int, dict] | None:
+    """(port, status) of a running B.E.R.B, if any (checks it really is B.E.R.B)."""
     for port in ports:
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status", timeout=1) as r:
-                if "concurrency" in json.loads(r.read() or b"{}"):
-                    return port
+                status = json.loads(r.read() or b"{}")
+                if "concurrency" in status:
+                    return port, status
         except (OSError, ValueError):
             continue
     return None
+
+
+def running_port(ports) -> int | None:
+    info = running_info(ports)
+    return info[0] if info else None
+
+
+def is_this_copy(status: dict) -> bool:
+    """Is the running B.E.R.B this exact copy (same folder, same version)?"""
+    return status.get("app_dir") == str(APP_DIR) and status.get("version") == APP_VERSION
+
+
+def stop_running(port: int, ports, wait: float = 20) -> bool:
+    """Ask a running B.E.R.B (e.g. an older copy) to turn off, and wait until it has."""
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/api/quit", method="POST",
+                                 headers={"Origin": "http://berb.localhost"})
+    try:
+        urllib.request.urlopen(req, timeout=5).close()
+    except OSError:
+        return False
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        if running_port(ports) is None:
+            return True
+        time.sleep(0.3)
+    return False
+
+
+def tell_user(message: str) -> None:
+    """Show a message even when there's no console window (pythonw on Windows)."""
+    print(message, flush=True)
+    if os.name == "nt" and (sys.stdout is None or "pythonw" in sys.executable.lower()):
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, message, "B.E.R.B", 0x40)
+        except Exception:
+            pass
+
+
+def replace_if_outdated(ports) -> bool:
+    """If an older copy (or one from another folder) is running, turn it off. True if none is left running."""
+    info = running_info(ports)
+    if info is None:
+        return True
+    port, status = info
+    if is_this_copy(status):
+        return False  # it's us: nothing to replace
+    if stop_running(port, ports):
+        return True
+    tell_user("An older copy of B.E.R.B is still running and couldn't be turned off automatically. "
+              "Turn it off (click Turn off in it, or restart your computer), then open B.E.R.B again.")
+    raise SystemExit(1)
 
 
 def _pythonw() -> str:
@@ -106,6 +172,7 @@ def open_window(url: str) -> None:
 
 def open_app(ports, pretty_url, window: bool = True, wait: float = 60) -> int:
     """Make sure B.E.R.B is running, then show it. Returns the port."""
+    replace_if_outdated(ports)  # an older copy still running would otherwise be shown instead
     port = running_port(ports)
     if port is None:
         start_background()
