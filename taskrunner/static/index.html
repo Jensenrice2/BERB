@@ -9,6 +9,9 @@
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png"><!-- used by Safari's "Add to Dock" on macOS -->
 <meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121416" media="(prefers-color-scheme: dark)">
+<script>/* apply the saved Appearance choice before the page draws, so it doesn't flash */
+  try { const t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
 <style>
   :root {
     --bg: #f6f6f4; --panel: #ffffff; --soft: #f1f1ee; --text: #24272b; --muted: #6f747b; --faint: #a3a7ad;
@@ -18,13 +21,22 @@
     --shadow: 0 1px 3px rgba(20, 20, 20, .05);
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
+  :root { color-scheme: light; }
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
       --bg: #121416; --panel: #1a1d20; --soft: #212428; --text: #e3e5e8; --muted: #9aa0a8; --faint: #6c727a;
       --line: #2a2e33; --accent: #7aa2f0; --accent-soft: #1f2b40;
       --ok: #5cc28a; --ok-soft: #17291f; --bad: #ee7d72; --bad-soft: #351e1c;
       --ask: #e8b552; --ask-soft: #2e2512; --ask-line: #5a4519; --shadow: none;
     }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+      --bg: #121416; --panel: #1a1d20; --soft: #212428; --text: #e3e5e8; --muted: #9aa0a8; --faint: #6c727a;
+      --line: #2a2e33; --accent: #7aa2f0; --accent-soft: #1f2b40;
+      --ok: #5cc28a; --ok-soft: #17291f; --bad: #ee7d72; --bad-soft: #351e1c;
+      --ask: #e8b552; --ask-soft: #2e2512; --ask-line: #5a4519; --shadow: none;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
@@ -152,11 +164,39 @@
   .drawer-head img { width: 30px; height: 30px; border-radius: 8px; }
   .drawer-head h2 { margin: 0; font-size: 18px; flex: 1; }
   .drawer-head .close { font-size: 16px; padding: 4px 10px; }
-  .dlg { padding: 20px; display: grid; gap: 14px; overflow-y: auto; flex: 1; align-content: start; }
-  .dlg h3 { margin: 0; font-size: 15px; }
-  .drawer-foot { padding: 16px 20px 20px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
-  .drawer-foot .note { margin: 0; color: var(--muted); font-size: 12.5px; }
-  .btn.wide { width: 100%; padding: 10px; }
+  .view { padding: 16px 20px; display: grid; gap: 14px; overflow-y: auto; flex: 1; align-content: start; }
+  .view[hidden] { display: none; }
+  .view .note { margin: 0; color: var(--muted); font-size: 13px; }
+  .setting { display: grid; gap: 10px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+  .setting:last-child { border-bottom: 0; }
+  .setting h3 { margin: 0; font-size: 15px; }
+  .seg { display: flex; background: var(--soft); border-radius: 10px; padding: 3px; gap: 3px; }
+  .seg label { flex: 1; text-align: center; padding: 6px 4px; border-radius: 8px; cursor: pointer; font-size: 14px; color: var(--muted); }
+  .seg label:has(input:checked) { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); font-weight: 550; }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg label:has(input:focus-visible) { outline: 2px solid var(--accent); }
+  .drawer-head .back { font-size: 18px; padding: 2px 10px; }
+  .drawer-foot { padding: 14px 20px 18px; border-top: 1px solid var(--line); display: grid; grid-template-columns: 1fr 1.3fr; gap: 10px; }
+  .drawer-foot .btn { padding: 10px 8px; white-space: nowrap; }
+  #settingsBtn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  /* folders */
+  ul.folders { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+  .folders li { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; cursor: pointer; }
+  .folders li:hover { background: var(--soft); }
+  .folders li.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .folders .fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .folders .count { color: var(--muted); font-size: 13px; font-weight: 400; }
+  .folders .busy { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .folders .act { display: none; padding: 2px 6px; font-size: 13px; }
+  .folders li:hover .act, .folders li:focus-within .act { display: inline-block; }
+  .folders .sep { height: 1px; background: var(--line); margin: 6px 4px; padding: 0; cursor: default; }
+  .new-folder { display: flex; gap: 8px; padding: 0; }
+  .new-folder input { flex: 1; min-width: 0; padding: 8px 11px; }
+  .folder-chip { border: 0; background: var(--soft); color: var(--text); border-radius: 999px; padding: 3px 12px;
+                 font: inherit; font-size: 13.5px; cursor: pointer; max-width: 260px; overflow: hidden;
+                 text-overflow: ellipsis; white-space: nowrap; }
+  .folder-chip:hover { background: var(--accent-soft); color: var(--accent); }
+  .in-folder { color: var(--muted); font-weight: 500; }
   .dlg .note { margin: 0; color: var(--muted); font-size: 13.5px; }
   .switch { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 12px; background: var(--soft); cursor: pointer; }
   .switch input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--accent); flex: none; }
@@ -184,6 +224,7 @@
 <header>
   <h1><button id="menuBtn" class="logo-btn" type="button" aria-haspopup="dialog" aria-controls="settings"
        title="Settings"><img src="/static/icons/logo-64.png" alt=""><span>B.E.R.B</span><span class="chev" aria-hidden="true">›</span></button></h1>
+  <button id="folderChip" class="folder-chip" type="button" hidden title="Choose a folder">📁 <span></span></button>
   <div id="stats" aria-live="polite"></div>
   <button id="install" class="btn" type="button">Install app</button>
 </header>
@@ -191,7 +232,7 @@
   <div class="side">
     <section class="card">
       <form id="new">
-        <h2 class="title">New task</h2>
+        <h2 class="title">New task<span id="inFolder" class="in-folder"></span></h2>
         <textarea id="command" required aria-label="What do you want done?"
           placeholder="What do you want done?"></textarea>
         <p class="hint">Claude works on it in the background and asks you if it needs anything.</p>
@@ -211,7 +252,7 @@
     </section>
     <section class="card">
       <div class="list-head">
-        <h2 class="title">Tasks</h2>
+        <h2 class="title" id="tasksTitle">Tasks</h2>
         <select id="filter" aria-label="Show">
           <option value="">All</option><option value="running">Working</option><option value="queued">Waiting</option>
           <option value="succeeded">Done</option><option value="failed">Didn't finish</option>
@@ -223,27 +264,50 @@
   </div>
   <section class="card" id="detail"></section>
 </main>
-<dialog id="settings" class="drawer" aria-labelledby="settingsTitle">
+<dialog id="settings" class="drawer" aria-labelledby="drawerTitle">
   <div class="drawer-in">
     <div class="drawer-head">
-      <img src="/static/icons/logo-64.png" alt="">
-      <h2 id="settingsTitle">Settings</h2>
-      <button class="btn quiet close" type="button" id="settingsClose" aria-label="Close settings">✕</button>
+      <button class="btn quiet back" type="button" id="drawerBack" aria-label="Back to folders" hidden>←</button>
+      <img src="/static/icons/logo-64.png" alt="" id="drawerLogo">
+      <h2 id="drawerTitle">Folders</h2>
+      <button class="btn quiet close" type="button" id="settingsClose" aria-label="Close">✕</button>
     </div>
-    <section class="dlg" aria-labelledby="loginsTitle">
-    <h3 id="loginsTitle">🔑 Saved logins</h3>
-    <label class="switch"><input type="checkbox" id="remember">
-      <span><b>Remember passwords</b>
-        <span class="note">Let B.E.R.B sign in to websites for you. Passwords are kept in your computer's own
-        password store (Windows Credential Manager or the Mac Keychain). Claude never sees them, and each one is only
-        ever typed on its own website, and only on secure (https) pages.</span></span></label>
-    <div id="loginsWarn"></div>
-    <div id="loginsBody"></div>
-    </section>
+
+    <div class="view" id="viewFolders">
+      <ul class="folders" id="folderList"></ul>
+      <form id="newFolder" class="new-folder" autocomplete="off">
+        <input id="newFolderName" maxlength="80" placeholder="New folder name, e.g. Trip planning" aria-label="New folder name">
+        <button class="btn" type="submit">Add</button>
+      </form>
+      <p class="note">Tasks in the same folder share a space for files, so Claude can pick up where an earlier
+        task left off ("now turn that list into a budget").</p>
+    </div>
+
+    <div class="view" id="viewSettings" hidden>
+      <section class="setting">
+        <h3>🎨 Appearance</h3>
+        <div class="seg" role="radiogroup" aria-label="Appearance">
+          <label><input type="radio" name="theme" value="auto"> Automatic</label>
+          <label><input type="radio" name="theme" value="light"> Light</label>
+          <label><input type="radio" name="theme" value="dark"> Dark</label>
+        </div>
+        <p class="note">Automatic follows your computer's light or dark mode.</p>
+      </section>
+      <section class="setting" aria-labelledby="loginsTitle">
+        <h3 id="loginsTitle">🔑 Saved logins</h3>
+        <label class="switch"><input type="checkbox" id="remember">
+          <span><b>Remember passwords</b>
+            <span class="note">Let B.E.R.B sign in to websites for you. Passwords are kept in your computer's own
+            password store (Windows Credential Manager or the Mac Keychain). Claude never sees them, and each one is only
+            ever typed on its own website, and only on secure (https) pages.</span></span></label>
+        <div id="loginsWarn"></div>
+        <div id="loginsBody"></div>
+      </section>
+    </div>
+
     <div class="drawer-foot">
-      <button id="quit" class="btn danger wide" type="button">⏻ Turn off B.E.R.B</button>
-      <p class="note">Stops B.E.R.B running in the background, and any tasks that are still going.
-        Open it again from its icon.</p>
+      <button id="settingsBtn" class="btn" type="button">⚙ Settings</button>
+      <button id="quit" class="btn danger" type="button">⏻ Turn off B.E.R.B</button>
     </div>
   </div>
 </dialog>
@@ -257,6 +321,8 @@ const EXAMPLES = [
   'Find 3 good beginner Python courses and open them in tabs',
   "Help me plan a dinner menu for 6 people. Ask me about allergies first.",
 ];
+let currentFolder = null, folders = [], totalTasks = 0;   // null = All tasks
+try { const f = localStorage.getItem('folder'); if (f && /^\d+$/.test(f)) currentFolder = +f; } catch (e) {}
 let answered = new Set();  // questions already answered here, while Claude picks the answer up
 let selected = null, jobsSig = '', feedNext = 0, feedTimer = null, current = null, logOffset = 0, showTech = false;
 
@@ -316,8 +382,10 @@ async function api(path, opts = {}) {
 // ---------------------------------------------------------------- header + list
 async function refresh() {
   try {
-    const jobs = await api('/api/jobs?status=' + $('#filter').value);
-    const all = $('#filter').value ? await api('/api/jobs') : jobs;
+    const inFolder = currentFolder != null ? `&folder=${currentFolder}` : '';
+    const all = await api('/api/jobs');
+    const jobs = ($('#filter').value || inFolder) ? await api('/api/jobs?status=' + $('#filter').value + inFolder) : all;
+    totalTasks = all.length;
     const n = s => all.filter(j => j.status === s).length;
     const asking = all.filter(j => j.question).length;
     const chips = [];
@@ -333,7 +401,8 @@ async function refresh() {
         <span class="jtext">${esc(j.command)}</span>
         <span class="jmeta">${pill(j)}<span>${ago(j.created_at)}</span>${j.kind !== 'agent' ? '<span>· command</span>' : ''}</span>
       </li>`).join('')
-      : `<li class="empty">${$('#filter').value ? 'Nothing here.' : 'No tasks yet. Describe one above.'}</li>`;
+      : `<li class="empty">${$('#filter').value ? 'Nothing here.' : currentFolder != null
+          ? 'No tasks in this folder yet. Describe one above.' : 'No tasks yet. Describe one above.'}</li>`;
     if (html !== jobsSig) { $('#jobs').innerHTML = html; jobsSig = html; }
     if (selected) {
       const j = all.find(x => x.id === selected) || await api('/api/jobs/' + selected).catch(() => null);
@@ -554,6 +623,7 @@ $('#new').addEventListener('submit', async e => {
   const text = $('#command').value.trim();
   if (!text) return;
   const body = { kind: 'agent', task: text };
+  if (currentFolder != null) body.folder_id = currentFolder;
   if ($('#name').value.trim()) body.name = $('#name').value.trim();
   if ($('#cwd').value.trim()) body.cwd = $('#cwd').value.trim();
   if ($('#timeout').value) body.timeout = Math.round(+$('#timeout').value * 60);
@@ -585,10 +655,99 @@ async function loadLogins() {
     </form>` : (r.enabled ? '' : '<p class="note">Turned off: Claude won\'t use saved logins. Turn it on to add or use them.</p>');
   $('#loginsBody').innerHTML = list + add;
 }
-function openSettings() {
-  $('#settings').showModal(); $('#menuBtn').setAttribute('aria-expanded', 'true'); loadLogins();
+// ---------------------------------------------------------------- side panel: folders + settings
+function showView(view) {
+  const settings = view === 'settings';
+  $('#viewFolders').hidden = settings; $('#viewSettings').hidden = !settings;
+  $('#drawerTitle').textContent = settings ? 'Settings' : 'Folders';
+  $('#drawerBack').hidden = !settings; $('#drawerLogo').hidden = settings;
+  $('#settingsBtn').setAttribute('aria-pressed', settings);
+  if (settings) loadLogins(); else loadFolders();
 }
-$('#menuBtn').addEventListener('click', openSettings);
+function openDrawer(view = 'folders') {
+  if (!$('#settings').open) $('#settings').showModal();
+  $('#menuBtn').setAttribute('aria-expanded', 'true');
+  showView(view);
+}
+$('#menuBtn').addEventListener('click', () => openDrawer());
+$('#folderChip').addEventListener('click', () => openDrawer());
+$('#drawerBack').addEventListener('click', () => showView('folders'));
+$('#settingsBtn').addEventListener('click', () => showView($('#viewSettings').hidden ? 'settings' : 'folders'));
+
+function folderName(id) { const f = folders.find(x => x.id === id); return f ? f.name : ''; }
+function showFolder() {
+  const name = currentFolder != null ? folderName(currentFolder) : '';
+  $('#folderChip').hidden = !name;
+  $('#folderChip').querySelector('span').textContent = name;
+  $('#inFolder').textContent = name ? ` in ${name}` : '';
+  $('#tasksTitle').textContent = name || 'Tasks';
+}
+async function loadFolders() {
+  try { folders = await api('/api/folders'); } catch { return; }
+  if (currentFolder != null && !folders.some(f => f.id === currentFolder)) setFolder(null, false);
+  const item = (id, name, count, busy) => `
+    <li data-folder="${id ?? ''}" class="${(id ?? null) === currentFolder ? 'on' : ''}" tabindex="0">
+      <span aria-hidden="true">${id == null ? '🗂️' : '📁'}</span>
+      <span class="fname">${esc(name)}</span>${busy ? '<span class="busy" title="Working"></span>' : ''}
+      <span class="count">${count}</span>
+      ${id == null ? '' : `<button class="btn quiet act" type="button" data-rename="${id}" title="Rename" aria-label="Rename ${esc(name)}">✎</button>
+      <button class="btn quiet act danger" type="button" data-delfolder="${id}" title="Delete" aria-label="Delete ${esc(name)}">🗑</button>`}
+    </li>`;
+  $('#folderList').innerHTML = item(null, 'All tasks', totalTasks, false)
+    + (folders.length ? '<li class="sep" aria-hidden="true"></li>' : '')
+    + folders.map(f => item(f.id, f.name, f.tasks, f.active)).join('');
+  showFolder();
+}
+function setFolder(id, close = true) {
+  currentFolder = id;
+  try { id == null ? localStorage.removeItem('folder') : localStorage.setItem('folder', id); } catch (e) {}
+  showFolder(); jobsSig = ''; refresh();
+  if (close && $('#settings').open) $('#settings').close();
+}
+$('#folderList').addEventListener('click', async e => {
+  const ren = e.target.closest('[data-rename]'), del = e.target.closest('[data-delfolder]');
+  if (ren) {
+    const id = +ren.dataset.rename, name = prompt('Rename folder:', folderName(id));
+    if (name && name.trim()) {
+      try { await api(`/api/folders/${id}`, { method: 'PATCH', body: JSON.stringify({ name: name.trim() }) }); } catch (err) { alert(err.message); }
+      loadFolders();
+    }
+    return;
+  }
+  if (del) {
+    const id = +del.dataset.delfolder, f = folders.find(x => x.id === id);
+    if (!confirm(`Delete the folder “${f.name}”? Its ${f.tasks} task${f.tasks === 1 ? '' : 's'} will stay, under All tasks.`)) return;
+    try { await api(`/api/folders/${id}`, { method: 'DELETE' }); } catch (err) { alert(err.message); }
+    if (currentFolder === id) setFolder(null, false);
+    loadFolders();
+    return;
+  }
+  const li = e.target.closest('li[data-folder]');
+  if (li) setFolder(li.dataset.folder === '' ? null : +li.dataset.folder);
+});
+$('#folderList').addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('li[data-folder]')) { e.preventDefault(); e.target.click(); }
+});
+$('#newFolder').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = $('#newFolderName').value.trim(); if (!name) return;
+  try {
+    const f = await api('/api/folders', { method: 'POST', body: JSON.stringify({ name }) });
+    $('#newFolderName').value = '';
+    await loadFolders(); setFolder(f.id);
+  } catch (err) { alert(err.message); }
+});
+
+// Appearance: Automatic / Light / Dark (remembered on this computer)
+(() => {
+  let t = 'auto'; try { t = localStorage.getItem('theme') || 'auto'; } catch (e) {}
+  const radio = document.querySelector(`input[name=theme][value="${t}"]`) || document.querySelector('input[name=theme][value=auto]');
+  radio.checked = true;
+  document.querySelectorAll('input[name=theme]').forEach(r => r.addEventListener('change', () => {
+    if (r.value === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = r.value;
+    try { localStorage.setItem('theme', r.value); } catch (e) {}
+  }));
+})();
 $('#settingsClose').addEventListener('click', () => $('#settings').close());
 $('#settings').addEventListener('close', () => $('#menuBtn').setAttribute('aria-expanded', 'false'));
 // clicking the dark area beside the panel closes it
@@ -630,6 +789,7 @@ $('#quit').addEventListener('click', async () => {
 $('#command').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('#new').requestSubmit(); });
 $('#filter').addEventListener('change', () => { jobsSig = ''; refresh(); });
 showWelcome();
+loadFolders();
 refresh();
 const refreshTimer = setInterval(refresh, 2000);
 

@@ -23,7 +23,13 @@ CREATE TABLE IF NOT EXISTS jobs (
     attempts    INTEGER NOT NULL DEFAULT 0,
     created_at  REAL NOT NULL,
     started_at  REAL,
-    finished_at REAL
+    finished_at REAL,
+    folder_id   INTEGER                          -- the task folder it belongs to (or none)
+);
+CREATE TABLE IF NOT EXISTS folders (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    created_at  REAL NOT NULL
 );
 """
 
@@ -58,6 +64,8 @@ class Store:
             for col in ("provider", "model"):  # (unused columns, kept so old databases still load)
                 if col not in cols:
                     self._conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
+            if "folder_id" not in cols:  # upgrade databases created before task folders
+                self._conn.execute("ALTER TABLE jobs ADD COLUMN folder_id INTEGER")
             self._conn.commit()
 
     def _exec(self, sql: str, args: tuple = ()) -> "_Result":
@@ -71,11 +79,12 @@ class Store:
             return _Result(rows, cur.rowcount, cur.lastrowid)
 
     def create(self, name: str, command: str, cwd: str | None, timeout: float | None,
-               kind: str = "shell", provider: str | None = None, model: str | None = None) -> dict:
+               kind: str = "shell", provider: str | None = None, model: str | None = None,
+               folder_id: int | None = None) -> dict:
         cur = self._exec(
-            "INSERT INTO jobs (name, kind, command, cwd, timeout, provider, model, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (name, kind, command, cwd, timeout, provider, model, time.time()),
+            "INSERT INTO jobs (name, kind, command, cwd, timeout, provider, model, folder_id, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (name, kind, command, cwd, timeout, provider, model, folder_id, time.time()),
         )
         return self.get(cur.lastrowid)
 
@@ -83,14 +92,41 @@ class Store:
         row = self._exec("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
         return dict(row) if row else None
 
-    def list(self, status: str | None = None, limit: int = 200) -> list[dict]:
+    def list(self, status: str | None = None, limit: int = 200, folder: int | str | None = None) -> list[dict]:
+        """folder: a folder id, "none" for tasks in no folder, or None for every task."""
+        where, args = [], []
         if status:
-            rows = self._exec(
-                "SELECT * FROM jobs WHERE status=? ORDER BY id DESC LIMIT ?", (status, limit)
-            )
-        else:
-            rows = self._exec("SELECT * FROM jobs ORDER BY id DESC LIMIT ?", (limit,))
-        return [dict(r) for r in rows.fetchall()]
+            where.append("status=?"); args.append(status)
+        if folder == "none":
+            where.append("folder_id IS NULL")
+        elif folder is not None:
+            where.append("folder_id=?"); args.append(int(folder))
+        sql = "SELECT * FROM jobs" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY id DESC LIMIT ?"
+        return [dict(r) for r in self._exec(sql, (*args, limit)).fetchall()]
+
+    # ---------------------------------------------------------------- task folders
+    def create_folder(self, name: str) -> dict:
+        cur = self._exec("INSERT INTO folders (name, created_at) VALUES (?,?)", (name, time.time()))
+        return self.get_folder(cur.lastrowid)
+
+    def get_folder(self, folder_id: int) -> dict | None:
+        row = self._exec("SELECT * FROM folders WHERE id=?", (folder_id,)).fetchone()
+        return dict(row) if row else None
+
+    def folders(self) -> list[dict]:
+        rows = self._exec(
+            "SELECT f.*, COUNT(j.id) AS tasks, SUM(j.status IN ('queued','running')) AS active "
+            "FROM folders f LEFT JOIN jobs j ON j.folder_id = f.id GROUP BY f.id ORDER BY f.name COLLATE NOCASE"
+        ).fetchall()
+        return [{**dict(r), "active": dict(r)["active"] or 0} for r in rows]
+
+    def rename_folder(self, folder_id: int, name: str) -> None:
+        self._exec("UPDATE folders SET name=? WHERE id=?", (name, folder_id))
+
+    def delete_folder(self, folder_id: int) -> None:
+        """Its tasks stay, just no longer in a folder."""
+        self._exec("UPDATE jobs SET folder_id=NULL WHERE folder_id=?", (folder_id,))
+        self._exec("DELETE FROM folders WHERE id=?", (folder_id,))
 
     def queued_ids(self) -> list[int]:
         rows = self._exec("SELECT id FROM jobs WHERE status='queued' ORDER BY id").fetchall()

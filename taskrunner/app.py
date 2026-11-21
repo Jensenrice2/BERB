@@ -31,6 +31,7 @@ class JobIn(BaseModel):
     command: str | None = Field(default=None, description="Shell command to run (kind=shell)")
     task: str | None = Field(default=None, description="Plain-English task for the AI agent (kind=agent)")
     name: str | None = None
+    folder_id: int | None = Field(default=None, description="Put the task in this folder (and its file space)")
     cwd: str | None = None
     timeout: float | None = Field(default=None, gt=0, description="Seconds before the job is killed")
 
@@ -55,6 +56,10 @@ def is_local_host(host: str) -> bool:
         name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
     return (name in ("localhost", "127.0.0.1", "::1", "testserver")  # testserver: the test client
             or name.endswith(".localhost"))
+
+
+class FolderIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
 
 
 class LoginIn(BaseModel):
@@ -188,13 +193,51 @@ def create_app(data_dir: Path = DATA_DIR, concurrency: int = CONCURRENCY, vault:
         if body.cwd and not Path(body.cwd).is_dir():
             raise HTTPException(400, f"cwd does not exist: {body.cwd}")
         name = body.name or body.text.splitlines()[0][:60]
-        job = store.create(name, body.text, body.cwd, body.timeout, body.kind)
+        cwd = body.cwd
+        if body.folder_id is not None:
+            if not store.get_folder(body.folder_id):
+                raise HTTPException(404, "no such folder")
+            if not cwd:  # tasks in a folder share its file space, so they can build on each other's work
+                cwd = str(_folder_files(body.folder_id))
+        job = store.create(name, body.text, cwd, body.timeout, body.kind, folder_id=body.folder_id)
         runner.submit(job["id"])
         return job
 
     @app.get("/api/jobs")
-    def list_jobs(status: str | None = None, limit: int = Query(200, le=1000)):
-        return [_with_question(j) for j in store.list(status, limit)]
+    def list_jobs(status: str | None = None, limit: int = Query(200, le=1000), folder: str | None = None):
+        if folder not in (None, "", "none") and not folder.isdigit():
+            raise HTTPException(400, "folder must be a folder id or 'none'")
+        return [_with_question(j) for j in store.list(status, limit, folder or None)]
+
+    # ---------------------------------------------------------------- task folders
+    def _folder_files(folder_id: int) -> Path:
+        path = data_dir / "folders" / str(folder_id) / "files"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @app.get("/api/folders")
+    def list_folders():
+        return store.folders()
+
+    @app.post("/api/folders", status_code=201)
+    def create_folder(body: FolderIn):
+        folder = store.create_folder(body.name.strip())
+        _folder_files(folder["id"])
+        return folder
+
+    @app.patch("/api/folders/{folder_id}")
+    def rename_folder(folder_id: int, body: FolderIn):
+        if not store.get_folder(folder_id):
+            raise HTTPException(404, "no such folder")
+        store.rename_folder(folder_id, body.name.strip())
+        return store.get_folder(folder_id)
+
+    @app.delete("/api/folders/{folder_id}", status_code=204)
+    def delete_folder(folder_id: int):
+        """The folder goes; its tasks stay (in no folder), and its files stay on disk."""
+        if not store.get_folder(folder_id):
+            raise HTTPException(404, "no such folder")
+        store.delete_folder(folder_id)
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: int):
