@@ -135,11 +135,28 @@
          font: 12.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; color: var(--muted); }
 
   /* saved logins */
-  dialog#logins { border: 1px solid var(--line); border-radius: 16px; padding: 0; width: min(560px, calc(100vw - 32px));
-                  background: var(--panel); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
-  dialog#logins::backdrop { background: rgba(0,0,0,.35); }
-  .dlg { padding: 22px 24px; display: grid; gap: 16px; }
-  .dlg h2 { margin: 0; font-size: 18px; }
+  .logo-btn { display: inline-flex; align-items: center; gap: 10px; padding: 4px 10px 4px 4px; margin-left: -4px;
+              border: 0; border-radius: 10px; background: none; cursor: pointer; font: inherit; color: inherit; }
+  .logo-btn:hover, .logo-btn[aria-expanded="true"] { background: var(--soft); }
+  .logo-btn .chev { color: var(--faint); font-size: 18px; line-height: 1; transition: transform .15s; }
+  .logo-btn:hover .chev { transform: translateX(2px); }
+  dialog.drawer { margin: 0; padding: 0; border: 0; height: 100vh; max-height: 100vh; width: min(420px, 100vw);
+                  background: var(--panel); color: var(--text); box-shadow: 8px 0 40px rgba(0,0,0,.2);
+                  border-right: 1px solid var(--line); }
+  dialog.drawer[open] { animation: slidein .18s ease-out; }
+  @keyframes slidein { from { transform: translateX(-100%); } to { transform: none; } }
+  @media (prefers-reduced-motion: reduce) { dialog.drawer[open] { animation: none; } }
+  dialog.drawer::backdrop { background: rgba(0,0,0,.35); }
+  .drawer-in { height: 100%; display: flex; flex-direction: column; }
+  .drawer-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  .drawer-head img { width: 30px; height: 30px; border-radius: 8px; }
+  .drawer-head h2 { margin: 0; font-size: 18px; flex: 1; }
+  .drawer-head .close { font-size: 16px; padding: 4px 10px; }
+  .dlg { padding: 20px; display: grid; gap: 14px; overflow-y: auto; flex: 1; align-content: start; }
+  .dlg h3 { margin: 0; font-size: 15px; }
+  .drawer-foot { padding: 16px 20px 20px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+  .drawer-foot .note { margin: 0; color: var(--muted); font-size: 12.5px; }
+  .btn.wide { width: 100%; padding: 10px; }
   .dlg .note { margin: 0; color: var(--muted); font-size: 13.5px; }
   .switch { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 12px; background: var(--soft); cursor: pointer; }
   .switch input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--accent); flex: none; }
@@ -149,7 +166,8 @@
   .saved .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .saved .who span { color: var(--muted); }
   .saved.off { opacity: .55; }
-  .addlogin { display: grid; gap: 8px; padding: 0; }
+  .addlogin { display: grid; gap: 8px; padding: 0; margin-top: 10px; }
+  .addlogin .btn { white-space: nowrap; flex: none; }
   .addlogin input { padding: 9px 11px; }
   .warn { padding: 10px 12px; border-radius: 10px; background: var(--ask-soft); color: var(--ask); font-size: 13.5px; }
 
@@ -164,11 +182,10 @@
 </head>
 <body>
 <header>
-  <h1><img src="/static/icons/logo-64.png" alt="">B.E.R.B</h1>
+  <h1><button id="menuBtn" class="logo-btn" type="button" aria-haspopup="dialog" aria-controls="settings"
+       title="Settings"><img src="/static/icons/logo-64.png" alt=""><span>B.E.R.B</span><span class="chev" aria-hidden="true">›</span></button></h1>
   <div id="stats" aria-live="polite"></div>
   <button id="install" class="btn" type="button">Install app</button>
-  <button id="loginsBtn" class="btn quiet" type="button">🔑 Saved logins</button>
-  <button id="quit" class="btn quiet" type="button" title="Stop B.E.R.B running in the background">Turn off</button>
 </header>
 <main>
   <div class="side">
@@ -206,9 +223,15 @@
   </div>
   <section class="card" id="detail"></section>
 </main>
-<dialog id="logins" aria-labelledby="loginsTitle">
-  <div class="dlg">
-    <h2 id="loginsTitle">Saved logins</h2>
+<dialog id="settings" class="drawer" aria-labelledby="settingsTitle">
+  <div class="drawer-in">
+    <div class="drawer-head">
+      <img src="/static/icons/logo-64.png" alt="">
+      <h2 id="settingsTitle">Settings</h2>
+      <button class="btn quiet close" type="button" id="settingsClose" aria-label="Close settings">✕</button>
+    </div>
+    <section class="dlg" aria-labelledby="loginsTitle">
+    <h3 id="loginsTitle">🔑 Saved logins</h3>
     <label class="switch"><input type="checkbox" id="remember">
       <span><b>Remember passwords</b>
         <span class="note">Let B.E.R.B sign in to websites for you. Passwords are kept in your computer's own
@@ -216,7 +239,12 @@
         ever typed on its own website, and only on secure (https) pages.</span></span></label>
     <div id="loginsWarn"></div>
     <div id="loginsBody"></div>
-    <div class="row"><span></span><button class="btn" type="button" id="loginsClose">Done</button></div>
+    </section>
+    <div class="drawer-foot">
+      <button id="quit" class="btn danger wide" type="button">⏻ Turn off B.E.R.B</button>
+      <p class="note">Stops B.E.R.B running in the background, and any tasks that are still going.
+        Open it again from its icon.</p>
+    </div>
   </div>
 </dialog>
 <script>
@@ -557,8 +585,14 @@ async function loadLogins() {
     </form>` : (r.enabled ? '' : '<p class="note">Turned off: Claude won\'t use saved logins. Turn it on to add or use them.</p>');
   $('#loginsBody').innerHTML = list + add;
 }
-$('#loginsBtn').addEventListener('click', () => { $('#logins').showModal(); loadLogins(); });
-$('#loginsClose').addEventListener('click', () => $('#logins').close());
+function openSettings() {
+  $('#settings').showModal(); $('#menuBtn').setAttribute('aria-expanded', 'true'); loadLogins();
+}
+$('#menuBtn').addEventListener('click', openSettings);
+$('#settingsClose').addEventListener('click', () => $('#settings').close());
+$('#settings').addEventListener('close', () => $('#menuBtn').setAttribute('aria-expanded', 'false'));
+// clicking the dark area beside the panel closes it
+$('#settings').addEventListener('click', e => { if (e.target === $('#settings')) $('#settings').close(); });
 $('#remember').addEventListener('change', async e => {
   try { await api('/api/logins/settings', { method: 'PUT', body: JSON.stringify({ enabled: e.target.checked }) }); }
   catch (err) { alert(err.message); }
