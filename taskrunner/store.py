@@ -27,6 +27,19 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 """
 
+class _Result:
+    """A finished query: its rows, plus how many rows it changed and the new row's id."""
+
+    def __init__(self, rows: list, rowcount: int, lastrowid: int | None):
+        self._rows, self.rowcount, self.lastrowid = rows, rowcount, lastrowid
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self) -> list:
+        return self._rows
+
+
 # queued -> running -> succeeded | failed | cancelled | timed_out
 ACTIVE = ("queued", "running")
 
@@ -47,11 +60,15 @@ class Store:
                     self._conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
             self._conn.commit()
 
-    def _exec(self, sql: str, args: tuple = ()) -> sqlite3.Cursor:
+    def _exec(self, sql: str, args: tuple = ()) -> "_Result":
+        # The connection is shared by the web server's threads and the job runner, so read the
+        # results while still holding the lock - reading them afterwards could pick up another
+        # thread's query instead.
         with self._lock:
             cur = self._conn.execute(sql, args)
+            rows = cur.fetchall()
             self._conn.commit()
-            return cur
+            return _Result(rows, cur.rowcount, cur.lastrowid)
 
     def create(self, name: str, command: str, cwd: str | None, timeout: float | None,
                kind: str = "shell", provider: str | None = None, model: str | None = None) -> dict:

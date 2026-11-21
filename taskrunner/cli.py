@@ -126,7 +126,7 @@ def main(argv=None):
         url = pretty_url(port)
         if args.open:
             _open_when_ready(f"http://127.0.0.1:{port}", url)
-        print(f"Task Runner is running at {url}\n"
+        print(f"B.E.R.B is running at {url}\n"
               f"  (also http://localhost{'' if port == 80 else f':{port}'})\n"
               "  Keep this window open; close it or press Ctrl+C to stop.", flush=True)
         uvicorn.run("taskrunner.app:app", host=args.host, port=port, log_level="warning")

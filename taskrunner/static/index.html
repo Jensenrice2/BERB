@@ -3,135 +3,261 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Task Runner</title>
+<title>B.E.R.B</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png"><!-- used by Safari's "Add to Dock" on macOS -->
-<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#10141a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1318" media="(prefers-color-scheme: dark)">
 <style>
   :root {
-    --bg: #f6f7f9; --panel: #fff; --text: #1d2430; --muted: #6b7380; --border: #e2e5ea;
-    --accent: #2f6fde; --ok: #1f8a4c; --bad: #c9372c; --warn: #b7791f; --run: #2f6fde;
-    --code-bg: #0f141b; --code-text: #d6dde8;
+    --bg: #f5f6f8; --panel: #ffffff; --sunken: #f0f2f5; --text: #1b2230; --muted: #687282;
+    --faint: #98a0ad; --border: #e3e6eb; --accent: #2f6fde; --accent-soft: #e8f0fd;
+    --ok: #1c8a4a; --ok-soft: #e6f4ec; --bad: #c63a2f; --bad-soft: #fbecea;
+    --warn: #a86a12; --warn-soft: #fbf1e1; --run: #2f6fde; --run-soft: #e8f0fd;
+    --claude: #c96442; --openai: #10a37f;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .05);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #10141a; --panel: #171c24; --text: #e4e8ee; --muted: #8a93a1; --border: #262d38;
-      --accent: #5b8ff0; --ok: #3fb872; --bad: #e5675d; --warn: #e0a640; --run: #5b8ff0;
+      --bg: #0f1318; --panel: #161b22; --sunken: #11161c; --text: #e6e9ee; --muted: #929cab;
+      --faint: #6b7482; --border: #262d37; --accent: #5b8ff0; --accent-soft: #1b2a45;
+      --ok: #45bf78; --ok-soft: #15301f; --bad: #ea6c61; --bad-soft: #3a1b19;
+      --warn: #e0a640; --warn-soft: #36290f; --run: #5b8ff0; --run-soft: #1b2a45;
+      --claude: #e08a6a; --openai: #3cc29d; --shadow: none;
     }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
-         font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
-  header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex;
-           align-items: baseline; gap: 16px; flex-wrap: wrap; }
-  header h1 { font-size: 18px; margin: 0; display: flex; align-items: center; gap: 8px; }
-  header h1 img { width: 24px; height: 24px; border-radius: 6px; }
-  #install { margin-left: auto; display: none; }
-  #stats { color: var(--muted); font-size: 13px; }
-  main { display: grid; grid-template-columns: minmax(320px, 1fr) 1.3fr; gap: 16px; padding: 16px 20px; }
-  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 16px; } }
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; min-width: 0; }
-  form { display: grid; gap: 8px; margin-bottom: 14px; }
-  .row { display: flex; gap: 8px; }
-  .row > * { flex: 1; min-width: 0; }
-  input, textarea, button, select { font: inherit; color: inherit; }
-  input, textarea, select { width: 100%; padding: 7px 9px; border: 1px solid var(--border);
-                            border-radius: 6px; background: var(--bg); }
-  textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; min-height: 60px; }
-  button { padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border);
-           background: var(--panel); cursor: pointer; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button:disabled { opacity: .5; cursor: default; }
-  ul#jobs { list-style: none; margin: 0; padding: 0; }
-  ul#jobs li { padding: 9px 8px; border-top: 1px solid var(--border); cursor: pointer;
-               display: flex; gap: 10px; align-items: center; }
-  ul#jobs li:hover, ul#jobs li.sel { background: var(--bg); }
-  .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
-  .badge { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 10px;
-           border: 1px solid currentColor; white-space: nowrap; }
-  .s-queued { color: var(--muted); } .s-running { color: var(--run); }
-  .s-succeeded { color: var(--ok); } .s-failed, .s-timed_out { color: var(--bad); }
-  .s-cancelled { color: var(--warn); }
-  #detail h2 { font-size: 16px; margin: 0 0 4px; word-break: break-word; }
-  #detail .cmd { font-family: ui-monospace, Menlo, monospace; color: var(--muted); word-break: break-all; }
-  #detail .actions { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
-  pre#log { background: var(--code-bg); color: var(--code-text); padding: 12px; border-radius: 8px;
-            height: 60vh; overflow: auto; margin: 0; font-size: 12.5px; white-space: pre-wrap; word-break: break-all; }
-  .empty { color: var(--muted); padding: 20px 0; text-align: center; }
-  .filter { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .filter select { width: auto; }
-  .seg { display: flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
-  .seg button { flex: 1; border: 0; border-radius: 0; background: transparent; }
-  .seg button.on { background: var(--accent); color: #fff; }
-  .hint { color: var(--muted); font-size: 12px; margin: -2px 0 0; }
-  .kind { font-size: 13px; }
-  .model { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); white-space: nowrap; }
-  .model[hidden] { display: none; }
-  .model input { flex: 1; min-width: 0; }
-  #files { margin: 0 0 10px; font-size: 13px; }
-  #files a { color: var(--accent); text-decoration: none; }
-  #files li { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
-  #files .path { color: var(--muted); font-size: 12px; word-break: break-all; }
-  #files ul { list-style: none; padding: 0; margin: 4px 0 0; max-height: 140px; overflow: auto; }
-  #detail .task { white-space: pre-wrap; word-break: break-word; color: var(--muted); max-height: 120px; overflow: auto; }
+         font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button, input, textarea, select { font: inherit; color: inherit; }
+
+  /* header */
+  header { position: sticky; top: 0; z-index: 5;
+           display: flex; align-items: center; gap: 14px; padding: 12px 24px; flex-wrap: wrap;
+           border-bottom: 1px solid var(--border); background: var(--panel); }
+  header h1 { margin: 0; font-size: 16px; font-weight: 650; display: flex; align-items: center; gap: 9px; }
+  header h1 img { width: 26px; height: 26px; border-radius: 7px; }
+  #stats { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; font-size: 12.5px; }
+  .chip { padding: 2px 9px; border-radius: 999px; background: var(--sunken); color: var(--muted); white-space: nowrap; }
+  .chip.running { background: var(--run-soft); color: var(--run); }
+  .chip.failed { background: var(--bad-soft); color: var(--bad); }
+  .chip.offline { background: var(--bad-soft); color: var(--bad); }
+  #install { display: none; }
+
+  /* layout */
+  main { display: grid; grid-template-columns: minmax(340px, 420px) 1fr; gap: 20px;
+         padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 16px; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+           box-shadow: var(--shadow); min-width: 0; }
+  .side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+
+  /* new task form */
+  form { padding: 16px; display: grid; gap: 10px; }
+  .form-title { margin: 0; font-size: 15px; font-weight: 650; }
+  .seg { display: inline-flex; padding: 3px; gap: 3px; background: var(--sunken); border-radius: 9px; }
+  .seg button { border: 0; background: transparent; padding: 5px 14px; border-radius: 7px; cursor: pointer;
+                color: var(--muted); font-weight: 550; display: inline-flex; align-items: center; gap: 7px; }
+  .seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+  .dot.claude { background: var(--claude); } .dot.openai { background: var(--openai); }
+  .dot.shell { background: var(--faint); }
+  textarea, input, select { width: 100%; padding: 9px 11px; border: 1px solid var(--border);
+                            border-radius: 8px; background: var(--panel); }
+  textarea { resize: vertical; min-height: 96px; line-height: 1.45; }
+  textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .hint { margin: -2px 0 0; color: var(--muted); font-size: 12.5px; }
+  .field { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+  .field[hidden] { display: none; }
+  details.more { font-size: 13px; }
+  details.more summary { cursor: pointer; color: var(--muted); user-select: none; width: max-content; }
+  details.more summary:hover { color: var(--text); }
+  details.more .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  details.more .wide { grid-column: 1 / -1; }
+  .btn { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel);
+         cursor: pointer; font-weight: 550; }
+  .btn:hover { background: var(--sunken); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .btn.danger { color: var(--bad); }
+  .submit-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .kbd { color: var(--faint); font-size: 12px; }
+
+  /* task list */
+  .list-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px 8px; }
+  .list-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
+  .list-head select { width: auto; padding: 4px 8px; font-size: 12.5px; }
+  ul#jobs { list-style: none; margin: 0; padding: 0 8px 8px; max-height: 52vh; overflow: auto; }
+  ul#jobs li[data-id] { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 9px 10px;
+                        border-radius: 8px; cursor: pointer; }
+  ul#jobs li[data-id]:hover { background: var(--sunken); }
+  ul#jobs li.sel { background: var(--accent-soft); }
+  .jname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+  .jmeta { grid-column: 1; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px;
+           white-space: nowrap; overflow: hidden; }
+  ul#jobs .pill { grid-row: 1 / span 2; grid-column: 2; align-self: center; }
+  .pill { font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .s-queued { background: var(--sunken); color: var(--muted); }
+  .s-running { background: var(--run-soft); color: var(--run); }
+  .s-succeeded { background: var(--ok-soft); color: var(--ok); }
+  .s-failed, .s-timed_out { background: var(--bad-soft); color: var(--bad); }
+  .s-cancelled { background: var(--warn-soft); color: var(--warn); }
+  .s-running::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px;
+                       border-radius: 50%; background: currentColor; vertical-align: 1px; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  @media (prefers-reduced-motion: reduce) { .s-running::before { animation: none; } }
+  .empty { color: var(--muted); padding: 24px 16px; text-align: center; }
+
+  /* task details */
+  #detail { padding: 20px; display: flex; flex-direction: column; gap: 14px; min-height: 60vh; }
+  .d-top { display: flex; align-items: flex-start; gap: 12px; }
+  .d-top h2 { margin: 0; font-size: 18px; font-weight: 650; flex: 1; min-width: 0; word-break: break-word; }
+  .d-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; color: var(--muted); font-size: 12.5px; }
+  .d-meta span { display: inline-flex; align-items: center; gap: 6px; }
+  .task { margin: 0; padding: 10px 12px; background: var(--sunken); border-radius: 8px; white-space: pre-wrap;
+          word-break: break-word; max-height: 130px; overflow: auto; }
+  .task.cmd { font-family: var(--mono); font-size: 12.5px; }
+  #notice:empty, #files:empty { display: none; }
+  .notice { padding: 9px 12px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); font-size: 13px; }
+  .notice.warn { background: var(--warn-soft); color: var(--warn); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .section-title { margin: 0 0 6px; font-size: 13px; font-weight: 650; color: var(--muted);
+                   display: flex; align-items: center; gap: 8px; }
+  .section-title .link { font-weight: 500; font-size: 12px; color: var(--accent); background: none; border: 0;
+                         padding: 0; cursor: pointer; }
+  #files ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+  #files a { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 7px;
+             background: var(--sunken); color: var(--text); text-decoration: none; font-size: 13px; max-width: 100%; }
+  #files a:hover { background: var(--accent-soft); color: var(--accent); }
+  #files a .sz { color: var(--faint); font-size: 11.5px; }
+  #files .none { color: var(--faint); font-size: 13px; }
+  .log-wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  #log { flex: 1; min-height: 320px; max-height: 62vh; overflow: auto; margin: 0; padding: 12px 14px;
+         background: var(--sunken); border-radius: 8px; font: 12.5px/1.55 var(--mono);
+         white-space: pre-wrap; word-break: break-word; }
+  #log .l-sep { color: var(--faint); font-size: 11.5px; }
+  #log .l-turn { color: var(--faint); font-size: 11.5px; display: block; margin-top: 6px; }
+  #log .l-act { color: var(--accent); }
+  #log .l-think { color: var(--muted); font-style: italic; }
+  #log .l-err { color: var(--bad); font-weight: 600; }
+  #log .l-ok { color: var(--ok); font-weight: 600; }
+
+  /* welcome (nothing selected) */
+  .welcome { margin: auto; max-width: 520px; text-align: center; color: var(--muted); padding: 30px 10px; }
+  .welcome h2 { color: var(--text); font-size: 18px; margin: 0 0 6px; }
+  .examples { display: grid; gap: 8px; margin-top: 18px; text-align: left; }
+  .examples button { text-align: left; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+                     background: var(--panel); cursor: pointer; color: var(--text); }
+  .examples button:hover { border-color: var(--accent); background: var(--accent-soft); }
 </style>
 </head>
 <body>
 <header>
-  <h1><img src="/static/icons/icon.svg" alt="">Task Runner</h1>
-  <span id="stats"></span>
-  <button id="install" type="button">Install app</button>
+  <h1><img src="/static/icons/icon.svg" alt="">B.E.R.B</h1>
+  <div id="stats" aria-live="polite"></div>
+  <button id="install" class="btn" type="button">Install app</button>
 </header>
 <main>
-  <section class="panel">
-    <form id="new">
-      <div class="seg" role="tablist" aria-label="Which AI does the work">
-        <button type="button" data-provider="claude" class="on">🤖 Claude</button>
-        <button type="button" data-provider="openai">🤖 OpenAI</button>
+  <div class="side">
+    <section class="panel">
+      <form id="new">
+        <div class="submit-row">
+          <h2 class="form-title">New task</h2>
+          <div class="seg" role="tablist" aria-label="Which AI does the work">
+            <button type="button" role="tab" data-provider="claude" class="on"><span class="dot claude"></span>Claude</button>
+            <button type="button" role="tab" data-provider="openai"><span class="dot openai"></span>OpenAI</button>
+          </div>
+        </div>
+        <textarea id="command" rows="4" required aria-label="What should the AI do?"
+          placeholder="What should the AI do? Describe it in plain English."></textarea>
+        <p class="hint" id="hint"></p>
+        <label class="field" id="modelRow" hidden>OpenAI model
+          <input id="model" placeholder="gpt-4o" autocomplete="off" spellcheck="false">
+        </label>
+        <details class="more">
+          <summary>More options</summary>
+          <div class="grid">
+            <label class="field">Name <input id="name" placeholder="Made from the task"></label>
+            <label class="field">Time limit (minutes) <input id="timeout" type="number" min="1" step="1" placeholder="None"></label>
+            <label class="field wide">Folder to work in <input id="cwd" placeholder="A new folder for each task"></label>
+          </div>
+        </details>
+        <div class="submit-row">
+          <span class="kbd">Ctrl + Enter</span>
+          <button class="btn primary" type="submit">Start task</button>
+        </div>
+      </form>
+    </section>
+    <section class="panel">
+      <div class="list-head">
+        <h2>Tasks</h2>
+        <select id="filter" aria-label="Show">
+          <option value="">All</option><option value="running">Running</option><option value="queued">Waiting</option>
+          <option value="succeeded">Done</option><option value="failed">Failed</option>
+          <option value="timed_out">Timed out</option><option value="cancelled">Stopped</option>
+        </select>
       </div>
-      <textarea id="command" rows="4" required
-        placeholder="Describe the work in plain English, e.g.&#10;Download the CSV at &lt;url&gt;, clean it up, and write a summary report to report.md"></textarea>
-      <p class="hint" id="hint"></p>
-      <label class="model" id="modelRow" hidden>OpenAI model
-        <input id="model" placeholder="gpt-4o" autocomplete="off" spellcheck="false">
-      </label>
-      <div class="row">
-        <input id="name" placeholder="Name (optional)">
-        <input id="timeout" type="number" min="1" placeholder="Timeout sec (optional)">
-      </div>
-      <input id="cwd" placeholder="Working directory (optional; agents get a fresh workspace by default)">
-      <button class="primary" type="submit">Run in background</button>
-    </form>
-    <div class="filter">
-      <strong>Jobs</strong>
-      <select id="filter">
-        <option value="">All</option><option>queued</option><option>running</option>
-        <option>succeeded</option><option>failed</option><option>timed_out</option><option>cancelled</option>
-      </select>
-    </div>
-    <ul id="jobs"></ul>
-  </section>
-  <section class="panel" id="detail"><div class="empty">Select a job to see its output.</div></section>
+      <ul id="jobs"></ul>
+    </section>
+  </div>
+  <section class="panel" id="detail"></section>
 </main>
 <script>
 const $ = s => document.querySelector(s);
-let selected = null, logOffset = 0, logTimer = null, filesSig = '';
+let selected = null, logOffset = 0, logTimer = null, filesSig = '', logTail = '', jobsSig = '', lastBlank = false;
+let lastErr = '', current = null;  // the selected task, and the last error line seen in its log
 let provider = 'claude', openaiDefault = 'gpt-4o';
+
+const STATUS = { queued: 'Waiting', running: 'Running', succeeded: 'Done', failed: 'Failed',
+                 timed_out: 'Timed out', cancelled: 'Stopped' };
 const HINT = {
-  claude: 'Claude works on this in the background: it can use a shell, edit files, search the web, and click and type in its own browser window.',
-  openai: 'An OpenAI model works on this in the background: it can use a shell, edit files, and click and type in its own browser window. Needs OPENAI_API_KEY in your .env file.',
+  claude: 'Claude can search the web, use websites, open tabs and work with files.',
+  openai: 'OpenAI can use websites, open tabs and work with files. Needs OPENAI_API_KEY in your .env file.',
 };
+const EXAMPLES = [
+  "Find this weekend's weather forecast for Chicago and write it to weather.md",
+  "Go to wikipedia.org, search for 'Golden Gate Bridge' and save the first paragraph to bridge.txt",
+  'Search for 3 good beginner Python courses and open them in tabs',
+  'Make a folder called notes with a to-do list file inside',
+];
+
 const store = {  // remembers the last choices on this computer; harmless if the browser blocks it
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch {} },
 };
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pill = s => `<span class="pill s-${s}">${STATUS[s] || s}</span>`;
+const aiName = j => j.kind !== 'agent' ? 'Shell' : j.provider === 'openai' ? 'OpenAI ' + (j.model || openaiDefault) : 'Claude';
+const aiDot = j => `<span class="dot ${j.kind !== 'agent' ? 'shell' : j.provider === 'openai' ? 'openai' : 'claude'}"></span>`;
+function took(j) {
+  if (!j.started_at) return '';
+  const s = Math.round((j.finished_at || Date.now() / 1000) - j.started_at);
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m`;
+}
+function ago(t) {
+  const s = Date.now() / 1000 - t;
+  if (s < 45) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+const clock = t => new Date(t * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || r.statusText); }
+  return r.status === 204 ? null : r.json();
+}
+
+// ---------------------------------------------------------------- AI choice
 function setProvider(p) {
   provider = p;
-  document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.dataset.provider === p));
+  document.querySelectorAll('.seg button').forEach(b => {
+    const on = b.dataset.provider === p; b.classList.toggle('on', on); b.setAttribute('aria-selected', on);
+  });
   $('#hint').textContent = HINT[p];
   $('#modelRow').hidden = p !== 'openai';
   store.set('provider', p);
@@ -141,61 +267,86 @@ document.querySelector('.seg').addEventListener('click', e => {
 });
 $('#model').value = store.get('openaiModel') || '';
 setProvider(store.get('provider') === 'openai' ? 'openai' : 'claude');
-const aiLabel = j => j.provider === 'openai' ? 'OpenAI ' + (j.model || openaiDefault) : 'Claude';
 
-async function api(path, opts = {}) {
-  const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || r.statusText); }
-  return r.status === 204 ? null : r.json();
-}
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const dur = j => {
-  if (!j.started_at) return '';
-  const s = ((j.finished_at || Date.now() / 1000) - j.started_at);
-  return s < 60 ? s.toFixed(1) + 's' : Math.floor(s / 60) + 'm ' + Math.floor(s % 60) + 's';
-};
-const badge = s => `<span class="badge s-${s}">${s.replace('_', ' ')}</span>`;
-
+// ---------------------------------------------------------------- list + header
 async function refresh() {
   try {
     const [jobs, st] = await Promise.all([api('/api/jobs?status=' + $('#filter').value), api('/api/status')]);
     if (st.openai_model && st.openai_model !== openaiDefault) {
       openaiDefault = st.openai_model; $('#model').placeholder = openaiDefault;
     }
-    $('#stats').textContent = `${st.running}/${st.concurrency} workers busy · ` +
-      Object.entries(st.counts).map(([k, v]) => `${v} ${k.replace('_', ' ')}`).join(' · ');
-    $('#jobs').innerHTML = jobs.length ? jobs.map(j => `
+    const c = st.counts, chips = [];
+    if (c.running) chips.push(`<span class="chip running">${c.running} running</span>`);
+    if (c.queued) chips.push(`<span class="chip">${c.queued} waiting</span>`);
+    if (c.succeeded) chips.push(`<span class="chip">${c.succeeded} done</span>`);
+    const bad = (c.failed || 0) + (c.timed_out || 0);
+    if (bad) chips.push(`<span class="chip failed">${bad} failed</span>`);
+    $('#stats').innerHTML = chips.join('') || '<span class="chip">No tasks yet</span>';
+
+    const html = jobs.length ? jobs.map(j => `
       <li data-id="${j.id}" class="${j.id === selected ? 'sel' : ''}">
-        ${badge(j.status)}<span class="name">${j.kind === 'agent' ? `<span class="kind" title="${esc(aiLabel(j))}">🤖</span> ` : ''}#${j.id} ${esc(j.name)}</span><span class="meta">${dur(j)}</span>
-      </li>`).join('') : '<li class="empty">No jobs yet.</li>';
+        <span class="jname" title="${esc(j.name)}">${esc(j.name)}</span>
+        ${pill(j.status)}
+        <span class="jmeta">${aiDot(j)}${esc(aiName(j))} · ${ago(j.created_at)}${j.started_at ? ' · ' + took(j) : ''}</span>
+      </li>`).join('')
+      : `<li class="empty">${$('#filter').value ? 'No tasks with this status.' : 'No tasks yet. Describe one above.'}</li>`;
+    if (html !== jobsSig) { $('#jobs').innerHTML = html; jobsSig = html; }
     if (selected) renderDetail(jobs.find(j => j.id === selected) || await api('/api/jobs/' + selected));
   } catch (e) {
-    $('#stats').textContent = e instanceof TypeError
-      ? 'Server not running. Start it with: python -m taskrunner.cli serve'
-      : 'Error: ' + e.message;
+    $('#stats').innerHTML = `<span class="chip offline">${e instanceof TypeError
+      ? 'Not running. Start the app (start-windows or F5 in VS Code)' : esc('Error: ' + e.message)}</span>`;
   }
+}
+
+// ---------------------------------------------------------------- details
+function friendlyError(j) {
+  if (j.status === 'cancelled') return ['warn', 'You stopped this task.'];
+  if (j.status === 'timed_out') return ['', `Stopped because it went over its time limit (${Math.round(j.timeout / 60) || 1} min).`];
+  if (j.status === 'failed') {
+    const why = lastErr || (j.error ? j.error.charAt(0).toUpperCase() + j.error.slice(1) + '.' : '');
+    return ['', why || 'Something went wrong. See the activity below for details.'];
+  }
+  return null;
 }
 
 function renderDetail(j) {
   const d = $('#detail');
-  if (!d.querySelector('pre')) {
-    d.innerHTML = `<h2></h2><div id="jobtext"></div><div class="meta" id="info"></div>
-      <div class="actions"></div><div id="files"></div><pre id="log"></pre>`;
+  if (!d.querySelector('#log')) {
+    d.innerHTML = `
+      <div class="d-top"><h2></h2><span id="dstatus"></span></div>
+      <div class="d-meta" id="info"></div>
+      <p class="task" id="jobtext"></p>
+      <div id="notice"></div>
+      <div class="actions"></div>
+      <div id="files"></div>
+      <div class="log-wrap"><p class="section-title">Activity</p><pre id="log" aria-live="off"></pre></div>`;
   }
-  const c = $('#jobtext');
-  if (j.kind === 'agent') { c.className = 'task'; c.textContent = j.command; }
-  else { c.className = 'cmd'; c.textContent = '$ ' + j.command; }
-  if (j.kind === 'agent') loadFiles(j.id); else $('#files').innerHTML = '';
-  d.querySelector('h2').innerHTML = `#${j.id} ${esc(j.name)} ${badge(j.status)}`;
-  $('#info').textContent = [
-    j.kind === 'agent' && 'AI: ' + aiLabel(j),
-    j.cwd && 'cwd: ' + j.cwd, j.timeout && 'timeout: ' + j.timeout + 's',
-    'attempts: ' + j.attempts, j.exit_code != null && 'exit: ' + j.exit_code, dur(j), j.error,
-  ].filter(Boolean).join(' · ');
+  d.querySelector('h2').textContent = j.name;
+  $('#dstatus').innerHTML = pill(j.status);
+  const t = $('#jobtext');
+  t.className = j.kind === 'agent' ? 'task' : 'task cmd';
+  t.textContent = j.kind === 'agent' ? j.command : '$ ' + j.command;
+  $('#info').innerHTML = [
+    `<span>${aiDot(j)}${esc(aiName(j))}</span>`,
+    `<span>${j.started_at ? 'Started ' + clock(j.started_at) : 'Added ' + clock(j.created_at)}</span>`,
+    j.started_at ? `<span>${j.finished_at ? 'Took' : 'Running for'} ${took(j)}</span>` : '',
+    j.attempts > 1 ? `<span>Run ${j.attempts} times</span>` : '',
+  ].join('');
+  current = j;
+  showNotice();
   const active = j.status === 'queued' || j.status === 'running';
-  d.querySelector('.actions').innerHTML = active
-    ? `<button data-act="cancel">Cancel</button>`
-    : `<button data-act="retry">Retry</button><button data-act="delete">Delete</button>`;
+  const acts = active ? `<button class="btn" data-act="cancel">Stop</button>`
+    : `<button class="btn" data-act="retry">Run again</button><button class="btn danger" data-act="delete">Delete</button>`;
+  const box = d.querySelector('.actions');
+  if (box.dataset.sig !== acts) { box.innerHTML = acts; box.dataset.sig = acts; }
+  if (j.kind === 'agent') loadFiles(j.id); else $('#files').innerHTML = '';
+}
+
+function showNotice() {
+  const n = current && friendlyError(current), box = $('#notice');
+  if (!box) return;
+  const html = n ? `<div class="notice ${n[0]}">${esc(n[1])}</div>` : '';
+  if (box.innerHTML !== html) box.innerHTML = html;
 }
 
 async function loadFiles(id) {
@@ -205,11 +356,53 @@ async function loadFiles(id) {
     const sig = JSON.stringify(r.files);
     if (sig === filesSig) return;
     filesSig = sig;
-    $('#files').innerHTML = `<strong>Workspace files</strong> <span class="path">${esc(r.workspace)}</span>` +
-      (r.files.length ? '<ul>' + r.files.map(f => `<li><a href="/api/jobs/${id}/files/${f.path.split('/').map(encodeURIComponent).join('/')}"
-        target="_blank">${esc(f.path)}</a><span class="meta">${f.size.toLocaleString()} B</span></li>`).join('') + '</ul>'
-        : ' <span class="meta">· none yet</span>');
+    const size = b => b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`;
+    $('#files').innerHTML = `
+      <p class="section-title">Files it made
+        <button class="link" type="button" data-copy="${esc(r.workspace)}" title="${esc(r.workspace)}">Copy folder path</button></p>` +
+      (r.files.length
+        ? '<ul>' + r.files.map(f => `<li><a target="_blank" title="${esc(f.path)}"
+            href="/api/jobs/${id}/files/${f.path.split('/').map(encodeURIComponent).join('/')}">📄 ${esc(f.path)}
+            <span class="sz">${size(f.size)}</span></a></li>`).join('') + '</ul>'
+        : '<span class="none">None yet</span>');
   } catch {}
+}
+
+// The log streams in pieces; colour each finished line by what it is.
+function lineClass(line) {
+  if (line.startsWith('---')) return 'l-sep';
+  if (line.startsWith('── turn')) return 'l-turn';
+  if (line.startsWith('✖') || line.startsWith('  ✖')) return 'l-err';
+  if (line.startsWith('✔')) return 'l-ok';
+  if (line.startsWith('💭')) return 'l-think';
+  if (/^(▶|🖱|🗂|🌐)/.test(line)) return 'l-act';
+  return '';
+}
+function appendLog(text) {
+  const pre = $('#log');
+  const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+  const live = pre.querySelector('.live'); if (live) live.remove();
+  const parts = (logTail + text).split('\n');
+  logTail = parts.pop();  // last piece may be an unfinished line
+  const frag = document.createDocumentFragment();
+  for (const line of parts) {
+    const blank = !line.trim();
+    if (blank && lastBlank) continue;  // squeeze runs of empty lines
+    lastBlank = blank;
+    const span = document.createElement('span');
+    const cls = lineClass(line); if (cls) span.className = cls;
+    if (cls === 'l-err') lastErr = line.replace(/^\s*✖\s*/, '');
+    span.textContent = line + '\n';
+    frag.appendChild(span);
+  }
+  if (logTail) {
+    const span = document.createElement('span');
+    span.className = 'live ' + lineClass(logTail); span.textContent = logTail;
+    frag.appendChild(span);
+  }
+  pre.appendChild(frag);
+  if (atBottom) pre.scrollTop = pre.scrollHeight;
+  showNotice();
 }
 
 async function pollLog() {
@@ -217,40 +410,56 @@ async function pollLog() {
   const id = selected;
   try {
     const r = await api(`/api/jobs/${id}/logs?offset=${logOffset}`);
-    if (id !== selected) return;
-    const pre = $('#log');
-    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 30;
-    pre.textContent += r.text;
+    if (id !== selected || !$('#log')) return;
+    if (r.text) appendLog(r.text);
     logOffset = r.next_offset;
-    if (atBottom) pre.scrollTop = pre.scrollHeight;
   } catch {}
 }
 
+function showWelcome() {
+  $('#detail').innerHTML = `<div class="welcome">
+    <h2>Give the AI something to do</h2>
+    <p>Describe a task on the left and press <b>Start task</b>. It runs in the background,
+       and you can watch it here. Try one of these:</p>
+    <div class="examples">${EXAMPLES.map(x => `<button type="button" data-example="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+  </div>`;
+}
+
 async function select(id) {
-  selected = id; logOffset = 0; filesSig = '';
+  selected = id; logOffset = 0; filesSig = ''; logTail = ''; lastBlank = false; lastErr = ''; current = null;
   $('#detail').innerHTML = '';
   clearInterval(logTimer);
+  jobsSig = '';
   await refresh();
   await pollLog();
   logTimer = setInterval(pollLog, 1000);
 }
 
+// ---------------------------------------------------------------- events
 $('#jobs').addEventListener('click', e => {
   const li = e.target.closest('li[data-id]');
   if (li) select(+li.dataset.id);
 });
 $('#detail').addEventListener('click', async e => {
-  const act = e.target.dataset.act;
+  const ex = e.target.closest('[data-example]');
+  if (ex) { $('#command').value = ex.dataset.example; $('#command').focus(); return; }
+  const cp = e.target.closest('[data-copy]');
+  if (cp) {
+    try { await navigator.clipboard.writeText(cp.dataset.copy); cp.textContent = 'Copied'; }
+    catch { prompt('Folder path:', cp.dataset.copy); }
+    setTimeout(() => { cp.textContent = 'Copy folder path'; }, 1500);
+    return;
+  }
+  const act = e.target.closest('[data-act]')?.dataset.act;
   if (!act) return;
   try {
     if (act === 'delete') {
-      if (!confirm('Delete this job and its log?')) return;
+      if (!confirm('Delete this task and its files list?')) return;
       await api(`/api/jobs/${selected}`, { method: 'DELETE' });
-      selected = null; clearInterval(logTimer);
-      $('#detail').innerHTML = '<div class="empty">Select a job to see its output.</div>';
+      selected = null; clearInterval(logTimer); showWelcome();
     } else {
       await api(`/api/jobs/${selected}/${act}`, { method: 'POST' });
-      if (act === 'retry') { logOffset = 0; $('#log').textContent = ''; }
+      if (act === 'retry') { logOffset = 0; logTail = ''; lastBlank = false; lastErr = ''; $('#log').textContent = ''; }
     }
     refresh();
   } catch (err) { alert(err.message); }
@@ -258,6 +467,7 @@ $('#detail').addEventListener('click', async e => {
 $('#new').addEventListener('submit', async e => {
   e.preventDefault();
   const text = $('#command').value.trim();
+  if (!text) return;
   const body = { kind: 'agent', task: text, provider };
   if (provider === 'openai') {
     const m = $('#model').value.trim();
@@ -266,15 +476,18 @@ $('#new').addEventListener('submit', async e => {
   }
   if ($('#name').value.trim()) body.name = $('#name').value.trim();
   if ($('#cwd').value.trim()) body.cwd = $('#cwd').value.trim();
-  if ($('#timeout').value) body.timeout = +$('#timeout').value;
+  if ($('#timeout').value) body.timeout = Math.round(+$('#timeout').value * 60);
   try {
     const j = await api('/api/jobs', { method: 'POST', body: JSON.stringify(body) });
-    const keepModel = $('#model').value;
-    e.target.reset(); $('#model').value = keepModel; setProvider(provider);
+    $('#command').value = ''; $('#name').value = '';
     select(j.id);
   } catch (err) { alert(err.message); }
 });
-$('#filter').addEventListener('change', refresh);
+$('#command').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('#new').requestSubmit();
+});
+$('#filter').addEventListener('change', () => { jobsSig = ''; refresh(); });
+showWelcome();
 refresh();
 setInterval(refresh, 1500);
 

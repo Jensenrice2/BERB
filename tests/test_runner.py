@@ -88,3 +88,22 @@ def test_delete_requires_inactive(client):
     client.post(f"/api/jobs/{j['id']}/cancel")
     wait(client, j["id"])
     assert client.delete(f"/api/jobs/{j['id']}").status_code == 204
+
+
+def test_concurrent_requests_never_mix_up_jobs(tmp_path):
+    """Regression: the shared database connection used to hand one request another's result."""
+    from concurrent.futures import ThreadPoolExecutor
+    from taskrunner.store import Store
+    store = Store(tmp_path / "jobs.db")
+    ids = [store.create(f"job {i}", "true", None, None)["id"] for i in range(20)]
+
+    def check(n):
+        job_id = ids[n % len(ids)]
+        for _ in range(50):
+            j = store.get(job_id)
+            assert j is not None and j["id"] == job_id and j["name"] == f"job {job_id - 1}"
+            assert len(store.list(limit=5)) == 5
+        return True
+
+    with ThreadPoolExecutor(16) as pool:
+        assert all(pool.map(check, range(64)))

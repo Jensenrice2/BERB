@@ -3,7 +3,7 @@ rem Double-click this file to start Task Runner on Windows.
 rem First time: it installs what the app needs (takes a minute or two).
 setlocal
 cd /d "%~dp0"
-title Task Runner
+title B.E.R.B
 
 rem --- find Python (the "py" launcher, or python on PATH; skip the Microsoft Store placeholder)
 set "PY="
@@ -30,7 +30,7 @@ if exist ".env" for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do s
 if defined TASKRUNNER_SETUP_ONLY exit /b 0
 
 echo.
-echo  Starting Task Runner. Your browser will open in a moment.
+echo  Starting B.E.R.B. Your browser will open in a moment.
 echo  KEEP THIS WINDOW OPEN while you use the app. Close it to stop the app.
 echo.
 ".venv\Scripts\python.exe" -m taskrunner.cli serve --open
