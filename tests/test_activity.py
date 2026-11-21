@@ -18,6 +18,8 @@ def test_steps_are_plain_english():
     assert describe_step("powershell", {"command": "Get-ChildItem"}) == "Ran a command"
     assert describe_step("str_replace_based_edit_tool", {"command": "create", "path": "notes/todo.md"}) == "Saved notes/todo.md"
     assert describe_step("str_replace_based_edit_tool", {"command": "view", "path": "/tmp/x/report.md"}) == "Looked at report.md"
+    assert describe_step("str_replace_based_edit_tool", {"command": "view", "path": "C:\\Users\\me\\BERB\\notes.txt"}) == "Looked at notes.txt"
+    assert describe_step("str_replace_based_edit_tool", {"command": "create", "path": "sub\\plan.md"}) == "Saved sub\\plan.md"
     assert describe_step("browser", {"action": "open", "url": "https://www.wikipedia.org/wiki/X"}) == "Went to wikipedia.org"
     assert describe_step("browser", {"action": "click", "ref": 3}, labels) == "Clicked “Search”"
     assert describe_step("browser", {"action": "type", "ref": 5, "text": "secret"}, labels) == "Typed into “Email”"

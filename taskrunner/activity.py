@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -85,7 +86,8 @@ def describe_step(name: str, inp: dict, labels: dict | None = None, shell: str =
         return None if inp.get("restart") else "Ran a command"
     if name == "str_replace_based_edit_tool":
         path = inp.get("path") or "a file"
-        path = Path(path).name if os.path.isabs(path) else path
+        if os.path.isabs(path) or path.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:[\\/]", path):
+            path = re.split(r"[\\/]", path.rstrip("\\/"))[-1] or path  # full path: just the file name
         return {"view": f"Looked at {path}", "create": f"Saved {path}",
                 "str_replace": f"Edited {path}", "insert": f"Edited {path}"}.get(inp.get("command"), f"Worked on {path}")
     if name == "open_in_browser":
