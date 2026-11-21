@@ -100,6 +100,7 @@ def describe_step(name: str, inp: dict, labels: dict | None = None, shell: str =
             "open": f"Went to {_site(inp.get('url'))}",
             "click": f"Clicked {label}",
             "type": f"Typed into {label}",
+            "fill_form": _filled(inp.get("fields"), labels),
             "select": f"Chose “{inp.get('text', '')}” in {label}",
             "check": f"{'Unticked' if str(inp.get('text', 'on')).lower() in ('off', 'false', 'no') else 'Ticked'} {label}",
             "press": f"Pressed {inp.get('text') or 'Enter'}",
@@ -112,6 +113,16 @@ def describe_step(name: str, inp: dict, labels: dict | None = None, shell: str =
     if name == "web_fetch":
         return f"Read {_site(inp.get('url'))}"
     return None
+
+
+def _filled(fields, labels: dict) -> str:
+    names = [f"“{labels[f['ref']]}”" for f in (fields or []) if isinstance(f, dict) and labels.get(f.get("ref"))]
+    count = len(fields or [])
+    if not names:
+        return f"Filled in {count} field{'s' if count != 1 else ''}"
+    if len(names) <= 3:
+        return "Filled in " + (", ".join(names[:-1]) + " and " + names[-1] if len(names) > 1 else names[0])
+    return f"Filled in {', '.join(names[:2])} and {count - 2} more"
 
 
 class Asker:

@@ -75,6 +75,12 @@ happen) and continue only on a clear yes; otherwise report what is filled in and
 - You cannot type passwords or payment-card details (the tool blocks it). If a site needs a \
 login, ask the user (ask_user, if you have it) to log in themselves in your browser window and \
 tell you when they're done; it remembers logins for later tasks.
+- Filling in forms: read each field's label or question (and any instructions on the page), then \
+fill it from the user's task and what you've found - several fields at once with fill_form. Never \
+make up personal details (names, emails, phone numbers, addresses, birthdays, ID numbers...): if a \
+required one isn't in the task, ask the user (ask_user, if you have it). After filling, read the \
+page again and fix anything marked as an error. Ask before the final submit unless the task \
+explicitly said to submit.
 - Prefer web_fetch for just reading pages; use the browser when you must click, type or log in."""
 
 # Opening tabs: runs here, in the user's own default browser.
