@@ -1,8 +1,8 @@
 // Service worker: makes the app installable and lets it open (showing a
 // "server not running" state) even when the task runner server is down.
 // Job data (/api/*) is never cached; it always comes live from the server.
-const CACHE = 'taskrunner-v1';
-const SHELL = ['/', '/manifest.webmanifest', '/static/icons/icon-192.png', '/static/icons/icon.svg'];
+const CACHE = 'berb-v2';
+const SHELL = ['/', '/manifest.webmanifest', '/static/icons/icon-192.png', '/static/icons/logo-64.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
